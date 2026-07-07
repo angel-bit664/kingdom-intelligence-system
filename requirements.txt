@@ -1,3 +1,7 @@
 discord.py
-deep-translator
 requests
+deep-translator
+pandas
+openpyxl
+beautifulsoup4
+lxml
