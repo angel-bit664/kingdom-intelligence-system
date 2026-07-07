@@ -6,8 +6,11 @@ import os
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
+
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+# ESTO ESTABA MAL - YA LO ARREGLÉ
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 
 def buscar_google(query):
@@ -24,23 +27,26 @@ def buscar_google(query):
 
 @bot.event
 async def on_ready():
-    print(f'Bot conectado como {bot.user}')
+    print(f'Logged in as {bot.user}')
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send('Pong! 📬 Bot activo')
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
         
-    msg_lower = message.content.lower()
+    msg = message.content.lower()
     
-    # COMANDOS CON "meta" SIN !
-    if msg_lower.startswith("meta "):
+    if msg.startswith("meta "):
         peticion = message.content[5:].strip()
         
         if peticion.lower().startswith("crear anuncio"):
             anuncio = peticion[14:].strip()
             if not anuncio:
-                await message.channel.send("¿Cuál es el anuncio?")
+                await message.channel.send("¿Cuál es el anuncio bro?")
                 return
             try:
                 anuncio_en = GoogleTranslator(source='es', target='en').translate(anuncio)
@@ -49,32 +55,41 @@ async def on_message(message):
             embed = discord.Embed(title="📢 ANUNCIO IMPORTANTE", color=discord.Color.red())
             embed.add_field(name="🇲🇽 Español", value=anuncio, inline=False)
             embed.add_field(name="🇺🇸 English", value=anuncio_en, inline=False)
+            embed.set_footer(text=f"Anuncio por {message.author.display_name}")
             await message.channel.send(content="@everyone", embed=embed)
             return
             
         elif peticion.lower().startswith("buscame informacion"):
             tema = peticion[20:].strip()
             if not tema:
-                await message.channel.send("¿De qué quieres info?")
+                await message.channel.send("¿De qué quieres info? Ej: `meta buscame informacion call of dragons`")
                 return
-            msg_busqueda = await message.channel.send(f"🔍 Buscando **{tema}**...")
+            msg_busqueda = await message.channel.send(f"🔍 Buscando info de **{tema}** en Google...")
             resultados = buscar_google(tema)
             if not resultados:
-                await msg_busqueda.edit(content=f"No encontré nada de **{tema}**")
+                await msg_busqueda.edit(content=f"No encontré nada de **{tema}** en Google 😔")
                 return
-            embed = discord.Embed(title=f"📚 Resultados: {tema}", color=discord.Color.blue())
-            desc = ""
+            embed = discord.Embed(title=f"📚 Resultados para: {tema}", color=discord.Color.blue())
+            descripcion = ""
             for i, r in enumerate(resultados[:3], 1):
-                desc += f"**{i}. {r.get('title', '')[:60]}**\n{r.get('snippet', '')[:100]}...\n[Link]({r.get('link', '')})\n\n"
-            embed.description = desc
+                titulo = r.get("title", "Sin título")[:60]
+                link = r.get("link", "")
+                snippet = r.get("snippet", "Sin descripción")[:100]
+                descripcion += f"**{i}. {titulo}**\n{snippet}...\n[Leer más]({link})\n\n"
+            embed.description = descripcion
+            embed.set_footer(text=f"Búsqueda hecha por {message.author.display_name}")
             await msg_busqueda.edit(content=None, embed=embed)
             return
     
-    # Si no es "meta", procesa comandos normales con !
+    if not message.content.startswith('!') and not msg.startswith("meta "):
+        try:
+            detectado = GoogleTranslator(source='auto', target='en').translate(message.content)
+            if detectado.lower()!= message.content.lower() and len(message.content) > 3:
+                await message.reply(f"🇺🇸 **Auto-Translate:** {detectado}", mention_author=False)
+        except:
+            pass
+            
     await bot.process_commands(message)
 
-@bot.command()
-async def ping(ctx):
-    await ctx.send('Pong! 📬 Bot activo')
-
+# ESTO ESTABA DUPLICADO - YA LO ARREGLÉ
 bot.run(os.getenv("DISCORD_TOKEN"))
