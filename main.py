@@ -9,7 +9,7 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
-SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+SERPER_API_KEY = os.getenv("e849e51b22fc9ee4a896b2e4ab9bb2259e811822")
 
 def buscar_google(query):
     """Busca en Google usando Serper API"""
