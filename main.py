@@ -1,36 +1,31 @@
 import discord
-import os
-from discord.ext import commands
-
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-@bot.event
-async def on_ready():
-    print(f'Bot conectado como {bot.user}')
-    print('Kingdom Intelligence System Online')
-
-@bot.command()
-async def ping(ctx):
-    await ctx.send('Pong! 🏰 Bot activo')
-
-@bot.command()
-async def hola(ctx):
-    await ctx.send(f'Qué onda {ctx.author.mention}, soy el bot de Kingdom Intelligence')
-
-bot.run(os.getenv('DISCORD_TOKEN'))
-
-
-import discord
 from discord.ext import commands
 from deep_translator import GoogleTranslator
+import requests
+import os
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+
+def buscar_google(query):
+    """Busca en Google usando Serper API"""
+    url = "https://google.serper.dev/search"
+    headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
+    data = {"q": query, "num": 3} # Solo 3 resultados
+    
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=5)
+        if response.status_code == 200:
+            resultados = response.json()
+            return resultados.get("organic", [])
+        else:
+            return []
+    except:
+        return []
 
 @bot.event
 async def on_ready():
@@ -40,73 +35,79 @@ async def on_ready():
 async def ping(ctx):
     await ctx.send('Pong! 📬 Bot activo')
 
-# COMANDO: meta crear anuncio [mensaje]
-@bot.command()
-async def meta(ctx, *, mensaje=None):
-    if mensaje is None:
-        await ctx.send("Usa: `!meta crear anuncio tu mensaje aqui`")
-        return
-    
-    # Si el mensaje empieza con "crear anuncio"
-    if mensaje.lower().startswith("crear anuncio"):
-        anuncio = mensaje[14:].strip() # Quita "crear anuncio"
-        
-        if not anuncio:
-            await ctx.send("¿Cuál es el anuncio bro? Ejemplo: `!meta crear anuncio vamos a peliar en zona 1 todos activos`")
-            return
-            
-        # Traduce a inglés
-        try:
-            anuncio_en = GoogleTranslator(source='es', target='en').translate(anuncio)
-        except:
-            anuncio_en = "Translation failed"
-            
-        # Crea el embed chido
-        embed = discord.Embed(
-            title="📢 ANUNCIO IMPORTANTE",
-            color=discord.Color.red()
-        )
-        embed.add_field(name="🇲🇽 Español", value=anuncio, inline=False)
-        embed.add_field(name="🇺🇸 English", value=anuncio_en, inline=False)
-        embed.set_footer(text=f"Anuncio creado por {ctx.author.display_name}")
-        
-        # Manda ping a @everyone
-        await ctx.send(content="@everyone", embed=embed)
-        
-    else:
-        await ctx.send("Comando no reconocido. Usa: `!meta crear anuncio tu mensaje`")
-
-# TRADUCTOR AUTOMÁTICO: Detecta idioma y traduce
 @bot.event
 async def on_message(message):
-    # Ignora mensajes del bot
     if message.author == bot.user:
         return
         
-    # Ignora comandos
-    if message.content.startswith('!'):
-        await bot.process_commands(message)
-        return
+    msg = message.content.lower()
     
-    # Solo traduce en canales de texto, no DMs
-    if not isinstance(message.channel, discord.TextChannel):
-        await bot.process_commands(message)
-        return
+    if msg.startswith("meta "):
+        peticion = message.content[5:].strip()
         
-    # Detecta si es español o inglés y traduce
-    try:
-        # Intenta detectar español
-        detectado = GoogleTranslator(source='auto', target='en').translate(message.content)
-        
-        # Si el texto original es diferente al traducido, probablemente era español
-        if detectado.lower()!= message.content.lower() and len(message.content) > 3:
-            # Es español, traduce a inglés
-            trad = detectado
-            await message.reply(f"🇺🇸 **Auto-Translate:** {trad}", mention_author=False)
+        # META CREAR ANUNCIO
+        if peticion.lower().startswith("crear anuncio"):
+            anuncio = peticion[14:].strip()
+            if not anuncio:
+                await message.channel.send("¿Cuál es el anuncio bro?")
+                return
+            try:
+                anuncio_en = GoogleTranslator(source='es', target='en').translate(anuncio)
+            except:
+                anuncio_en = "Translation failed"
+                
+            embed = discord.Embed(title="📢 ANUNCIO IMPORTANTE", color=discord.Color.red())
+            embed.add_field(name="🇲🇽 Español", value=anuncio, inline=False)
+            embed.add_field(name="🇺🇸 English", value=anuncio_en, inline=False)
+            embed.set_footer(text=f"Anuncio por {message.author.display_name}")
+            await message.channel.send(content="@everyone", embed=embed)
+            return
             
-    except:
-        pass # Si falla la traducción, no hace nada
-        
+        # META BUSCAME INFORMACION + GOOGLE
+        elif peticion.lower().startswith("buscame informacion"):
+            tema = peticion[20:].strip()
+            if not tema:
+                await message.channel.send("¿De qué quieres info? Ej: `meta buscame informacion call of dragons`")
+                return
+                
+            msg_busqueda = await message.channel.send(f"🔍 Buscando info de **{tema}** en Google...")
+            
+            resultados = buscar_google(tema)
+            
+            if not resultados:
+                await msg_busqueda.edit(content=f"No encontré nada de **{tema}** en Google 😔")
+                return
+            
+            # Arma el embed con los 3 primeros resultados
+            embed = discord.Embed(
+                title=f"📚 Resultados para: {tema}", 
+                color=discord.Color.blue()
+            )
+            
+            descripcion = ""
+            for i, r in enumerate(resultados[:3], 1):
+                titulo = r.get("title", "Sin título")[:60]
+                link = r.get("link", "")
+                snippet = r.get("snippet", "Sin descripción")[:100]
+                descripcion += f"**{i}. {titulo}**\n{snippet}...\n[Leer más]({link})\n\n"
+            
+            embed.description = descripcion
+            embed.set_footer(text=f"Búsqueda hecha por {message.author.display_name}")
+            
+            await msg_busqueda.edit(content=None, embed=embed)
+            return
+    
+    # TRADUCTOR AUTOMÁTICO
+    if not message.content.startswith('!') and not msg.startswith("meta "):
+        try:
+            detectado = GoogleTranslator(source='auto', target='en').translate(message.content)
+            if detectado.lower()!= message.content.lower() and len(message.content) > 3:
+                await message.reply(f"🇺🇸 **Auto-Translate:** {detectado}", mention_author=False)
+        except:
+            pass
+            
     await bot.process_commands(message)
+
+bot.run(os.getenv("DISCORD_TOKEN"))
 
 bot.run('TU_TOKEN') # Railway lo agarra de las Variables
