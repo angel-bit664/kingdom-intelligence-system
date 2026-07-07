@@ -25,15 +25,20 @@ async def on_message(message):
 
         if peticion.lower().startswith("alerta "):
             try:
+                # DEBUG: Imprime roles en logs de Railway
                 roles_usuario = [role.name for role in message.author.roles]
-                tiene_permiso = any("R4" in rol or "R5" in rol for rol in roles_usuario)
+                print(f"Usuario: {message.author.name} | Roles: {roles_usuario}")
+
+                # Busca R4 o R5 sin importar mayúsculas/espacios
+                tiene_permiso = any("r4" in rol.lower() or "r5" in rol.lower() for rol in roles_usuario)
+                print(f"Tiene permiso: {tiene_permiso}")
 
                 if not tiene_permiso:
-                    await message.channel.send("⛔ No tienes permiso para usar alertas.")
+                    await message.channel.send("⛔ Solo R4/R5 pueden usar alertas.")
                     return
 
                 texto_alerta = peticion[7:].strip()
-                if texto_alerta == "":
+                if not texto_alerta:
                     await message.channel.send("Uso: `meta alerta Tu mensaje aquí`")
                     return
 
@@ -48,8 +53,8 @@ async def on_message(message):
                 return
 
             except Exception as e:
-                print(f"Error en alerta: {e}")
-                await message.channel.send("Error al mandar la alerta.")
+                print(f"ERROR ALERTA: {e}")
+                await message.channel.send("Hubo un error al procesar la alerta.")
                 return
 
         await message.channel.send(f"Buscando: {peticion}")
