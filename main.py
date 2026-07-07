@@ -10,7 +10,6 @@ intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Variables de Railway
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -36,12 +35,11 @@ async def on_ready():
 
 @bot.command()
 async def ping(ctx):
-    """Comando para ver si el bot está vivo"""
     await ctx.send('Pong! 📬 Bot activo')
 
 @bot.command()
 async def traducir(ctx, idioma=None, *, texto=None):
-    """Traduce texto:!traducir en hola mundo"""
+    """Solo traduce cuando usas!traducir"""
     if idioma is None or texto is None:
         await ctx.send("Uso: `!traducir en hola mundo` o `!traducir es hello world`")
         return
@@ -61,15 +59,14 @@ async def on_message(message):
 
     msg = message.content.lower()
 
-    # COMANDOS CON "meta" SIN!
     if msg.startswith("meta "):
         peticion = message.content[5:].strip()
 
-        # META CREAR ANUNCIO
+        # META CREAR ANUNCIO - MANDA EN EL MISMO CANAL
         if peticion.lower().startswith("crear anuncio"):
             anuncio = peticion[14:].strip()
             if not anuncio:
-                await message.channel.send("¿Cuál es el anuncio bro?")
+                await message.channel.send("¿Cuál es el anuncio bro? `meta crear anuncio texto`")
                 return
             try:
                 anuncio_en = GoogleTranslator(source='es', target='en').translate(anuncio)
@@ -82,11 +79,50 @@ async def on_message(message):
             await message.channel.send(content="@everyone", embed=embed)
             return
 
+        # META ANUNCIAR - NUEVO: MANDA A OTRO CANAL CON @everyone
+        elif peticion.lower().startswith("anunciar "):
+            resto = peticion[9:].strip()
+            
+            # Busca si mencionó un canal #anuncios
+            if not message.channel_mentions:
+                await message.channel.send("Menciona el canal donde lo quieres mandar. Ej: `meta anunciar #anuncios KVK en 1 hora`")
+                return
+            
+            canal_destino = message.channel_mentions[0]
+            # Quita la mención del texto
+            anuncio = resto.replace(canal_destino.mention, "").strip()
+            
+            if not anuncio:
+                await message.channel.send("¿Cuál es el anuncio? Ej: `meta anunciar #anuncios KVK en 1 hora`")
+                return
+
+            # Checa permisos en el canal destino
+            permisos = canal_destino.permissions_for(message.guild.me)
+            if not permisos.send_messages or not permisos.mention_everyone:
+                await message.channel.send(f"No tengo permisos para enviar mensajes o mencionar @everyone en {canal_destino.mention}")
+                return
+
+            try:
+                anuncio_en = GoogleTranslator(source='es', target='en').translate(anuncio)
+            except:
+                anuncio_en = "Translation failed"
+                
+            embed = discord.Embed(title="📢 ANUNCIO IMPORTANTE", color=discord.Color.red())
+            embed.add_field(name="🇲🇽 Español", value=anuncio, inline=False)
+            embed.add_field(name="🇺🇸 English", value=anuncio_en, inline=False)
+            embed.set_footer(text=f"Anuncio por {message.author.display_name} desde #{message.channel.name}")
+            
+            try:
+                await canal_destino.send(content="@everyone", embed=embed)
+                await message.channel.send(f"✅ Anuncio enviado a {canal_destino.mention}")
+            except Exception as e:
+                await message.channel.send(f"Error al enviar: {e}")
+            return
+
         # META INFO COD - MÓDULO CALL OF DRAGONS
         elif peticion.lower().startswith("info cod"):
             comando = peticion[8:].strip().lower()
 
-            # meta info cod reino 1234
             if comando.startswith("reino "):
                 num_reino = comando[6:].strip()
                 if not num_reino.isdigit():
@@ -103,11 +139,10 @@ async def on_message(message):
                 for r in resultados[:3]:
                     desc += f"**{r.get('title', '')[:60]}**\n{r.get('snippet', '')[:120]}...\n[Ver fuente]({r.get('link', '')})\n\n"
                 embed.description = desc
-                embed.set_footer(text="Info de Google. Para datos exactos agrégalos manualmente.")
+                embed.set_footer(text="Info de Google.")
                 await msg_busqueda.edit(content=None, embed=embed)
                 return
 
-            # meta info cod heroe liliya
             elif comando.startswith("heroe "):
                 nombre_heroe = comando[6:].strip()
                 if not nombre_heroe:
@@ -127,7 +162,6 @@ async def on_message(message):
                 await msg_busqueda.edit(content=None, embed=embed)
                 return
 
-            # meta info cod mascota bear
             elif comando.startswith("mascota ") or comando.startswith("pet "):
                 nombre_pet = comando.split(" ", 1)[1] if " " in comando else ""
                 if not nombre_pet:
@@ -147,7 +181,6 @@ async def on_message(message):
                 await msg_busqueda.edit(content=None, embed=embed)
                 return
 
-            # meta info cod top
             elif comando.startswith("top") or comando.startswith("rankings"):
                 msg_busqueda = await message.channel.send("🔍 Buscando rankings actuales de CoD...")
                 query = "Call of Dragons top kingdoms players power rankings 2026"
@@ -160,7 +193,6 @@ async def on_message(message):
                 await msg_busqueda.edit(content=None, embed=embed)
                 return
 
-            # meta info cod ayuda
             else:
                 ayuda = """
 **Comandos Call of Dragons:**
@@ -169,24 +201,17 @@ async def on_message(message):
 `meta info cod mascota bear` - Skills de mascota
 `meta info cod top` - Rankings actuales
 
-**Otros comandos:**
-`meta crear anuncio texto` - Anuncio ES/EN con @everyone
+**Comandos de Anuncios:**
+`meta crear anuncio texto` - Anuncio ES/EN aquí con @everyone
+`meta anunciar #canal texto` - Manda anuncio a otro canal con @everyone
+
+**Otros:**
 `!traducir en texto` - Traductor directo
 `!ping` - Ver si estoy vivo
                 """
                 await message.channel.send(ayuda)
                 return
 
-    # TRADUCTOR AUTOMÁTICO - Si no es comando
-    if not message.content.startswith('!') and not msg.startswith("meta "):
-        try:
-            detectado = GoogleTranslator(source='auto', target='en').translate(message.content)
-            if detectado.lower()!= message.content.lower() and len(message.content) > 3:
-                await message.reply(f"🇺🇸 **Auto-Translate:** {detectado}", mention_author=False)
-        except:
-            pass
-
     await bot.process_commands(message)
 
-# INICIA EL BOT
 bot.run(DISCORD_TOKEN)
