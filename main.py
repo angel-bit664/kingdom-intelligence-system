@@ -23,16 +23,13 @@ async def on_message(message):
     if message.content.lower().startswith("meta "):
         peticion = message.content[5:].strip()
 
-        # ===== META ALERTA - ARREGLADO PARA ROLES CON | =====
         if peticion.lower().startswith("alerta "):
             try:
                 roles_usuario = [role.name for role in message.author.roles]
-
-                # Checa si algún rol contiene R4 o R5. Funciona con "Oficiales | R4"
                 tiene_permiso = any("R4" in rol or "R5" in rol for rol in roles_usuario)
 
                 if not tiene_permiso:
-                    await message.channel.send(f"⛔ No tienes permiso. Tus roles: {', '.join(roles_usuario)}")
+                    await message.channel.send("⛔ No tienes permiso para usar alertas.")
                     return
 
                 texto_alerta = peticion[7:].strip()
@@ -48,14 +45,13 @@ async def on_message(message):
                 embed.set_footer(text=f"Alerta enviada por: {message.author.display_name}")
 
                 await message.channel.send("@everyone", embed=embed)
-                return # IMPORTANTE: Esto evita que busque en Google
+                return
 
             except Exception as e:
-                await message.channel.send(f"Error en meta alerta: {e}")
+                print(f"Error en alerta: {e}")
+                await message.channel.send("Error al mandar la alerta.")
                 return
-        # ===== FIN META ALERTA =====
 
-        # BUSCADOR ORIGINAL - SOLO SE EJECUTA SI NO ES ALERTA
         await message.channel.send(f"Buscando: {peticion}")
         url = "https://google.serper.dev/search"
         headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
