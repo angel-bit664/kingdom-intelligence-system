@@ -23,20 +23,9 @@ async def on_message(message):
     if message.content.lower().startswith("meta "):
         peticion = message.content[5:].strip()
 
+        # ===== META ALERTA SIN RESTRICCIÓN DE ROLES =====
         if peticion.lower().startswith("alerta "):
             try:
-                # DEBUG: Imprime roles en logs de Railway
-                roles_usuario = [role.name for role in message.author.roles]
-                print(f"Usuario: {message.author.name} | Roles: {roles_usuario}")
-
-                # Busca R4 o R5 sin importar mayúsculas/espacios
-                tiene_permiso = any("r4" in rol.lower() or "r5" in rol.lower() for rol in roles_usuario)
-                print(f"Tiene permiso: {tiene_permiso}")
-
-                if not tiene_permiso:
-                    await message.channel.send("⛔ Solo R4/R5 pueden usar alertas.")
-                    return
-
                 texto_alerta = peticion[7:].strip()
                 if not texto_alerta:
                     await message.channel.send("Uso: `meta alerta Tu mensaje aquí`")
@@ -56,6 +45,7 @@ async def on_message(message):
                 print(f"ERROR ALERTA: {e}")
                 await message.channel.send("Hubo un error al procesar la alerta.")
                 return
+        # ===== FIN META ALERTA =====
 
         await message.channel.send(f"Buscando: {peticion}")
         url = "https://google.serper.dev/search"
