@@ -13,26 +13,6 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# MAPA DE BANDERAS A IDIOMAS - EXPANDIDO
-BANDERAS = {
-    # Español
-    '🇲🇽': 'es', '🇪🇸': 'es', '🇦🇷': 'es', '🇨🇴': 'es', '🇨🇱': 'es', '🇵🇪': 'es',
-    '🇻🇪': 'es', '🇪🇨': 'es', '🇺🇾': 'es', '🇵🇾': 'es', '🇧🇴': 'es',
-    # Inglés
-    '🇺🇸': 'en', '🇬🇧': 'en', '🇨🇦': 'en', '🇦🇺': 'en', '🇳🇿': 'en',
-    # Portugués
-    '🇧🇷': 'pt', '🇵🇹': 'pt',
-    # Europa
-    '🇫🇷': 'fr', '🇩🇪': 'de', '🇮🇹': 'it', '🇳🇱': 'nl', '🇵🇱': 'pl', '🇸🇪': 'sv',
-    '🇳🇴': 'no', '🇩🇰': 'da', '🇫🇮': 'fi', '🇬🇷': 'el', '🇹🇷': 'tr', '🇷🇴': 'ro',
-    # Asia
-    '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh-CN', '🇹🇼': 'zh-TW', '🇭🇰': 'zh-CN',
-    '🇮🇳': 'hi', '🇮🇩': 'id', '🇻🇳': 'vi', '🇹🇭': 'th', '🇵🇭': 'tl',
-    # Medio Oriente / Otros
-    '🇷🇺': 'ru', '🇺🇦': 'uk', '🇸🇦': 'ar', '🇦🇪': 'ar', '🇮🇱': 'he',
-    '🇿🇦': 'af'
-}
-
 def buscar_google(query):
     url = "https://google.serper.dev/search"
     headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
@@ -46,6 +26,13 @@ def buscar_google(query):
         print(f"Error en búsqueda: {e}")
         return []
 
+def traducir_es_en(texto):
+    """Traduce de español a inglés. Si falla, regresa el original"""
+    try:
+        return GoogleTranslator(source='es', target='en').translate(texto)
+    except:
+        return "Translation failed"
+
 @bot.event
 async def on_ready():
     print(f'Bot conectado como {bot.user}')
@@ -55,90 +42,104 @@ async def on_ready():
 async def ping(ctx):
     await ctx.send('Pong! 📬 Bot activo')
 
-@bot.command()
-async def traducir(ctx, idioma=None, *, texto=None):
-    if idioma is None or texto is None:
-        await ctx.send("Uso: `!traducir en hola mundo`")
-        return
-    try:
-        traducido = GoogleTranslator(source='auto', target=idioma).translate(texto)
-        embed = discord.Embed(color=discord.Color.green())
-        embed.add_field(name="Original", value=texto, inline=False)
-        embed.add_field(name=f"Traducido a {idioma.upper()}", value=traducido, inline=False)
-        await ctx.send(embed=embed)
-    except:
-        await ctx.send("No pude traducir eso 😔")
-
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
 
-    msg = message.content
-    msg_lower = msg.lower()
+    msg = message.content.lower()
 
-    # 1. DETECTOR DE BANDERAS - TRADUCE SOLO SI HAY BANDERA
-    for bandera, idioma_destino in BANDERAS.items():
-        if bandera in msg:
-            texto_a_traducir = msg.replace(bandera, "").strip()
-            if not texto_a_traducir:
+    if msg.startswith("meta "):
+        peticion = message.content[5:].strip()
+
+        # META ALERTA - FORMATO GUERRA TFT BILINGÜE
+        if peticion.lower().startswith("alerta "):
+            resto = peticion[7:].strip()
+
+            if message.channel_mentions:
+                canal_destino = message.channel_mentions[0]
+                contenido_es = resto.replace(canal_destino.mention, "").strip()
+                canal_aviso = message.channel
+            else:
+                canal_destino = message.channel
+                contenido_es = resto
+                canal_aviso = None
+
+            if not contenido_es:
+                await message.channel.send("Pon el mensaje de la alerta. Ej: `meta alerta #anuncios KVK en 2h, todos línea 1`")
                 return
+
+            permisos = canal_destino.permissions_for(message.guild.me)
+            if not permisos.send_messages or not permisos.mention_everyone:
+                await message.channel.send(f"No tengo permisos en {canal_destino.mention}")
+                return
+
+            contenido_en = traducir_es_en(contenido_es)
+
+            mensaje_formateado = f"""@everyone
+
+👑 **Familia TFT / TFT Family** 👑
+
+📢 **Necesitamos el apoyo de todos / We need everyone's support.**
+
+🎯 **Misión / Mission:**
+🇲🇽 {contenido_es}
+🇺🇸 {contenido_en}
+
+🔥 **Todos están invitados / Everyone is invited.** Si quieren pelear y defender / If you want to fight and defend, los esperamos / we are waiting for you.
+
+**¡Vamos TFT / Let's go TFT! ¡Aún queda guerra por delante / War is still ahead!** 👑 ⚔️"""
+
             try:
-                traducido = GoogleTranslator(source='auto', target=idioma_destino).translate(texto_a_traducir)
-                await message.reply(f"{bandera} **Traducción:** {traducido}", mention_author=False)
-            except:
-                await message.reply("No pude traducir eso 😔", mention_author=False)
+                await canal_destino.send(mensaje_formateado)
+                if canal_aviso:
+                    await canal_aviso.send(f"✅ Alerta ES/EN enviada a {canal_destino.mention}")
+            except Exception as e:
+                await message.channel.send(f"Error: {e}")
             return
 
-    # 2. COMANDOS CON "meta "
-    if msg_lower.startswith("meta "):
-        peticion = msg[5:].strip()
-
-        if peticion.lower().startswith("crear anuncio"):
-            anuncio = peticion[14:].strip()
-            if not anuncio:
+        # META CREAR ANUNCIO - BILINGÜE
+        elif peticion.lower().startswith("crear anuncio"):
+            anuncio_es = peticion[14:].strip()
+            if not anuncio_es:
                 await message.channel.send("¿Cuál es el anuncio? `meta crear anuncio texto`")
                 return
-            try:
-                anuncio_en = GoogleTranslator(source='es', target='en').translate(anuncio)
-            except:
-                anuncio_en = "Translation failed"
-            embed = discord.Embed(title="📢 ANUNCIO IMPORTANTE", color=discord.Color.red())
-            embed.add_field(name="🇲🇽 Español", value=anuncio, inline=False)
+            anuncio_en = traducir_es_en(anuncio_es)
+            embed = discord.Embed(title="📢 ANUNCIO / ANNOUNCEMENT", color=discord.Color.red())
+            embed.add_field(name="🇲🇽 Español", value=anuncio_es, inline=False)
             embed.add_field(name="🇺🇸 English", value=anuncio_en, inline=False)
             embed.set_footer(text=f"Anuncio por {message.author.display_name}")
             await message.channel.send(content="@everyone", embed=embed)
             return
 
+        # META ANUNCIAR - BILINGÜE A OTRO CANAL
         elif peticion.lower().startswith("anunciar "):
             resto = peticion[9:].strip()
             if not message.channel_mentions:
                 await message.channel.send("Menciona el canal. Ej: `meta anunciar #anuncios KVK en 1 hora`")
                 return
             canal_destino = message.channel_mentions[0]
-            anuncio = resto.replace(canal_destino.mention, "").strip()
-            if not anuncio:
+            anuncio_es = resto.replace(canal_destino.mention, "").strip()
+            if not anuncio_es:
                 await message.channel.send("¿Cuál es el anuncio?")
                 return
             permisos = canal_destino.permissions_for(message.guild.me)
             if not permisos.send_messages or not permisos.mention_everyone:
                 await message.channel.send(f"No tengo permisos en {canal_destino.mention}")
                 return
-            try:
-                anuncio_en = GoogleTranslator(source='es', target='en').translate(anuncio)
-            except:
-                anuncio_en = "Translation failed"
-            embed = discord.Embed(title="📢 ANUNCIO IMPORTANTE", color=discord.Color.red())
-            embed.add_field(name="🇲🇽 Español", value=anuncio, inline=False)
+            anuncio_en = traducir_es_en(anuncio_es)
+            embed = discord.Embed(title="📢 ANUNCIO / ANNOUNCEMENT", color=discord.Color.red())
+            embed.add_field(name="🇲🇽 Español", value=anuncio_es, inline=False)
             embed.add_field(name="🇺🇸 English", value=anuncio_en, inline=False)
             embed.set_footer(text=f"Anuncio por {message.author.display_name} desde #{message.channel.name}")
             try:
                 await canal_destino.send(content="@everyone", embed=embed)
-                await message.channel.send(f"✅ Anuncio enviado a {canal_destino.mention}")
+                await message.channel.send(f"✅ Anuncio ES/EN enviado a {canal_destino.mention}")
             except Exception as e:
                 await message.channel.send(f"Error: {e}")
             return
 
+        # META INFO COD - SIN TRADUCTOR
         elif peticion.lower().startswith("info cod"):
             comando = peticion[8:].strip().lower()
 
@@ -213,18 +214,17 @@ async def on_message(message):
 
             else:
                 ayuda = """
-**Traducir con banderas:** Pon la bandera en tu mensaje
-`Ataquen ya 🇺🇸` → Inglés | `Ataquen 🇯🇵` → Japonés
-`Hola 🇷🇺` → Ruso | `Vamos 🇧🇷` → Portugués
-
 **Call of Dragons:**
 `meta info cod reino 1234` | `meta info cod heroe liliya`
 `meta info cod mascota bear` | `meta info cod top`
 
-**Anuncios:**
-`meta crear anuncio texto` | `meta anunciar #canal texto`
+**Alertas y Anuncios Bilingües ES/EN:**
+`meta alerta texto` - Alerta de guerra aquí
+`meta alerta #canal texto` - Alerta de guerra a otro canal
+`meta crear anuncio texto` - Anuncio aquí
+`meta anunciar #canal texto` - Anuncio a otro canal
 
-**Otros:** `!traducir en texto` | `!ping`
+**Otros:** `!ping`
                 """
                 await message.channel.send(ayuda)
                 return
