@@ -23,25 +23,21 @@ async def on_message(message):
     if message.content.lower().startswith("meta "):
         peticion = message.content[5:].strip()
 
-        # ===== BLOQUE META ALERTA R5/R4 - CORREGIDO =====
+        # ===== META ALERTA R5/R4 - VERSIÓN QUE SÍ DETECTA ROLES =====
         if peticion.lower().startswith("alerta "):
             try:
-                # 1. NOMBRES EXACTOS DE ROLES R5 Y R4
-                roles_permitidos = ["R5", "R4", "R4 Angel", "R4 SAURON"]
-
-                tiene_permiso = any(role.name in roles_permitidos for role in message.author.roles)
+                roles_usuario = [role.name for role in message.author.roles]
+                tiene_permiso = any("R4" in rol or "R5" in rol for rol in roles_usuario)
 
                 if not tiene_permiso:
-                    await message.channel.send("⛔ Solo oficiales R5 y R4 pueden usar `meta alerta`.")
+                    await message.channel.send(f"⛔ No tienes permiso. Tus roles son: {', '.join(roles_usuario)}")
                     return
 
                 texto_alerta = peticion[7:].strip()
-
                 if texto_alerta == "":
                     await message.channel.send("Uso: `meta alerta Tu mensaje aquí`")
                     return
 
-                # 2. EMBED TFT FAMILY
                 embed = discord.Embed(color=0xF1C40F)
                 embed.add_field(name="👑 Familia TFT / TFT Family 👑", value="📢 Necesitamos el apoyo de todos / We need everyone's support.", inline=False)
                 embed.add_field(name="🎯 Misión / Mission:", value=f"🇲🇽 {texto_alerta}", inline=False)
@@ -50,14 +46,14 @@ async def on_message(message):
                 embed.set_footer(text=f"Alerta enviada por: {message.author.display_name}")
 
                 await message.channel.send("@everyone", embed=embed)
-                return # Detiene el código para que no busque en Google
+                return
 
             except Exception as e:
                 await message.channel.send(f"Error en meta alerta: {e}")
                 return
         # ===== FIN BLOQUE META ALERTA =====
 
-        # TU CÓDIGO ORIGINAL DE BÚSQUEDA - INTACTO
+        # TU CÓDIGO ORIGINAL DE BÚSQUEDA
         await message.channel.send(f"Buscando: {peticion}")
         url = "https://google.serper.dev/search"
         headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
