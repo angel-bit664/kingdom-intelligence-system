@@ -7,6 +7,7 @@ import os
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
@@ -45,35 +46,15 @@ async def ping(ctx):
 async def on_message(message):
     if message.author == bot.user:
         return
+
     msg = message.content.lower()
 
     if msg.startswith("meta "):
         peticion = message.content[5:].strip()
 
-        # META ALERTA - SOLO R5 Y R4 OFICIALES - 3 TIPOS: GUERRA, EVENTO, INFO
+        # META ALERTA - FORMATO GUERRA TFT BILINGÜE
         if peticion.lower().startswith("alerta "):
-            # RESTRICCIÓN DE ROLES - SOLO R5 Y R4
-            # AJUSTA ESTOS NOMBRES A COMO SE LLAMAN TUS ROLES EXACTO
-            roles_permitidos = ["R5", "Líder", "Oficiales | R4", "R4"]
-            tiene_permiso = any(any(rol_busqueda.lower() in role.name.lower() for rol_busqueda in roles_permitidos) for role in message.author.roles)
-
-            if not tiene_permiso:
-                await message.channel.send("❌ Solo R5 y R4 Oficiales pueden enviar alertas")
-                return
-
             resto = peticion[7:].strip()
-
-            # Detectar tipo de alerta
-            tipo_alerta = "guerra" # default
-            if resto.lower().startswith("guerra "):
-                tipo_alerta = "guerra"
-                resto = resto[7:].strip()
-            elif resto.lower().startswith("evento "):
-                tipo_alerta = "evento"
-                resto = resto[7:].strip()
-            elif resto.lower().startswith("info "):
-                tipo_alerta = "info"
-                resto = resto[5:].strip()
 
             if message.channel_mentions:
                 canal_destino = message.channel_mentions[0]
@@ -85,25 +66,17 @@ async def on_message(message):
                 canal_aviso = None
 
             if not contenido_es:
-                ayuda = """**Usa:**
-`meta alerta guerra texto` - Para batallas/KVK
-`meta alerta evento texto` - Para eventos/premios
-`meta alerta info texto` - Para avisos generales
-Ej: `meta alerta evento #anuncios Torneo hoy 9pm UTC`"""
-                await message.channel.send(ayuda)
+                await message.channel.send("Pon el mensaje de la alerta. Ej: `meta alerta #anuncios KVK en 2h, todos línea 1`")
                 return
 
             permisos = canal_destino.permissions_for(message.guild.me)
             if not permisos.send_messages or not permisos.mention_everyone:
-                await message.channel.send(f"❌ No tengo permisos en {canal_destino.mention}. Activa 'Enviar Mensajes' y 'Mencionar @everyone'")
+                await message.channel.send(f"No tengo permisos en {canal_destino.mention}")
                 return
 
             contenido_en = traducir_es_en(contenido_es)
-            organizador = message.author.display_name
 
-            # FORMATO GUERRA
-            if tipo_alerta == "guerra":
-                mensaje_formateado = f"""@everyone
+            mensaje_formateado = f"""@everyone
 
 👑 **Familia TFT / TFT Family** 👑
 
@@ -113,49 +86,16 @@ Ej: `meta alerta evento #anuncios Torneo hoy 9pm UTC`"""
 🇲🇽 {contenido_es}
 🇺🇸 {contenido_en}
 
-⏰ **Hora / Time:** Preguntar a líder / Ask leader
-👤 **Organiza / Host:** {organizador}
-💬 **Dudas / Questions:** #{message.channel.name}
-
 🔥 **Todos están invitados / Everyone is invited.** Si quieren pelear y defender / If you want to fight and defend, los esperamos / we are waiting for you.
 
 **¡Vamos TFT / Let's go TFT! ¡Aún queda guerra por delante / War is still ahead!** 👑 ⚔️"""
 
-            # FORMATO EVENTO
-            elif tipo_alerta == "evento":
-                mensaje_formateado = f"""@everyone
-
-🎉 **Evento TFT / TFT Event** 🎉
-
-📢 **Atención familia / Attention family**
-
-🎯 **Detalles / Details:**
-🇲🇽 {contenido_es}
-🇺🇸 {contenido_en}
-
-👤 **Organiza / Host:** {organizador}
-💬 **Info / Info:** #{message.channel.name}
-
-✨ **¡Los esperamos / We await you!** ¡No falten / Don't miss it! 🎁"""
-
-            # FORMATO INFO/AVISO
-            else:
-                mensaje_formateado = f"""@everyone
-
-📢 **Aviso TFT / TFT Notice** 📢
-
-ℹ️ **Información / Information:**
-🇲🇽 {contenido_es}
-🇺🇸 {contenido_en}
-
-👤 **Organiza / Host:** {organizador}"""
-
             try:
                 await canal_destino.send(mensaje_formateado)
                 if canal_aviso:
-                    await canal_aviso.send(f"✅ Alerta `{tipo_alerta}` ES/EN enviada a {canal_destino.mention}")
+                    await canal_aviso.send(f"✅ Alerta ES/EN enviada a {canal_destino.mention}")
             except Exception as e:
-                await message.channel.send(f"Error al enviar: {e}")
+                await message.channel.send(f"Error: {e}")
             return
 
         # META CREAR ANUNCIO - BILINGÜE
@@ -202,6 +142,7 @@ Ej: `meta alerta evento #anuncios Torneo hoy 9pm UTC`"""
         # META INFO COD - SIN TRADUCTOR
         elif peticion.lower().startswith("info cod"):
             comando = peticion[8:].strip().lower()
+
             if comando.startswith("reino "):
                 num_reino = comando[6:].strip()
                 if not num_reino.isdigit():
@@ -218,4 +159,78 @@ Ej: `meta alerta evento #anuncios Torneo hoy 9pm UTC`"""
                 for r in resultados[:3]:
                     desc += f"**{r.get('title', '')[:60]}**\n{r.get('snippet', '')[:120]}...\n[Ver]({r.get('link', '')})\n\n"
                 embed.description = desc
-                await msg_busqueda.edit(content=None,
+                await msg_busqueda.edit(content=None, embed=embed)
+                return
+
+            elif comando.startswith("heroe "):
+                nombre_heroe = comando[6:].strip()
+                if not nombre_heroe:
+                    await message.channel.send("¿Qué héroe? Ej: `meta info cod heroe liliya`")
+                    return
+                msg_busqueda = await message.channel.send(f"🔍 Buscando build de **{nombre_heroe}**...")
+                query = f"Call of Dragons {nombre_heroe} hero guide build talents 2026"
+                resultados = buscar_google(query)
+                if not resultados:
+                    await msg_busqueda.edit(content=f"No encontré builds de **{nombre_heroe}**")
+                    return
+                embed = discord.Embed(title=f"⚔️ Héroe: {nombre_heroe.title()}", color=0xe74c3c)
+                desc = ""
+                for r in resultados[:3]:
+                    desc += f"**{r.get('title', '')[:60]}**\n{r.get('snippet', '')[:120]}...\n[Guía]({r.get('link', '')})\n\n"
+                embed.description = desc
+                await msg_busqueda.edit(content=None, embed=embed)
+                return
+
+            elif comando.startswith("mascota ") or comando.startswith("pet "):
+                nombre_pet = comando.split(" ", 1)[1] if " " in comando else ""
+                if not nombre_pet:
+                    await message.channel.send("¿Qué mascota? Ej: `meta info cod mascota frost dragon`")
+                    return
+                msg_busqueda = await message.channel.send(f"🔍 Buscando info de **{nombre_pet}**...")
+                query = f"Call of Dragons {nombre_pet} pet war pet skills guide"
+                resultados = buscar_google(query)
+                if not resultados:
+                    await msg_busqueda.edit(content=f"No encontré info de **{nombre_pet}**")
+                    return
+                embed = discord.Embed(title=f"🐾 Mascota: {nombre_pet.title()}", color=0x2ecc71)
+                desc = ""
+                for r in resultados[:3]:
+                    desc += f"**{r.get('title', '')[:60]}**\n{r.get('snippet', '')[:120]}...\n[Info]({r.get('link', '')})\n\n"
+                embed.description = desc
+                await msg_busqueda.edit(content=None, embed=embed)
+                return
+
+            elif comando.startswith("top") or comando.startswith("rankings"):
+                msg_busqueda = await message.channel.send("🔍 Buscando rankings de CoD...")
+                query = "Call of Dragons top kingdoms players power rankings 2026"
+                resultados = buscar_google(query)
+                embed = discord.Embed(title="🏆 Top Rankings Call of Dragons", color=0xf1c40f)
+                desc = ""
+                for r in resultados[:4]:
+                    desc += f"**{r.get('title', '')[:60]}**\n{r.get('snippet', '')[:100]}...\n[Ver]({r.get('link', '')})\n\n"
+                embed.description = desc if desc else "No hay rankings públicos actualizados"
+                await msg_busqueda.edit(content=None, embed=embed)
+                return
+
+            else:
+                ayuda = """
+**Call of Dragons:**
+`meta info cod reino 1234` | `meta info cod heroe liliya`
+`meta info cod mascota bear` | `meta info cod top`
+
+**Alertas y Anuncios Bilingües ES/EN:**
+`meta alerta texto` - Alerta de guerra aquí
+`meta alerta #canal texto` - Alerta de guerra a otro canal
+`meta crear anuncio texto` - Anuncio aquí
+`meta anunciar #canal texto` - Anuncio a otro canal
+
+**Otros:** `!ping`
+                """
+                await message.channel.send(ayuda)
+                return
+
+    await bot.process_commands(message)
+
+bot.run(DISCORD_TOKEN)
+
+Modifica y agrégale esas funciones nuevas a este codigo
