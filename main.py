@@ -14,7 +14,7 @@ intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
-ID_CANAL_ANUNCIOS = 1234567890123456789 # <-- CAMBIA ESTO POR EL ID DE TU CANAL
+ID_CANAL_ANUNCIOS = 1358237524249542751 # <-- CAMBIA ESTO POR EL ID DE TU CANAL
 
 @bot.event
 async def on_ready():
