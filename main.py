@@ -8,6 +8,7 @@ from io import BytesIO
 from bs4 import BeautifulSoup
 import cloudscraper
 from datetime import datetime, timedelta
+import re
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -15,48 +16,35 @@ intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
-ID_CANAL_ANUNCIOS = 1358237524249542751 # Tu canal ❄️・anuncios🔹announcements┋📣
-ID_CANAL_META = None # Si quieres limpiar un canal específico, pon el ID aquí. None = todos los canales donde usen meta
+ID_CANAL_ANUNCIOS = 1358237524249542751
 
-# Lista para guardar IDs de mensajes que se deben borrar
 mensajes_para_borrar = {}
 
 @bot.event
 async def on_ready():
     print(f'Bot conectado como {bot.user}')
-    print('Comandos: meta ping, meta ayuda, meta alerta, meta evento, meta traducir, meta codstats, meta talentos, meta mascota, meta <búsqueda>')
-    limpiar_canales.start() # Inicia el timer de limpieza
+    print('Fuentes: callofstats.com | dragonstats.com | coddb.app | callofdragonsguides.com | YouTube')
+    limpiar_canales.start()
 
-@tasks.loop(hours=1) # Se ejecuta cada hora
+@tasks.loop(hours=1)
 async def limpiar_canales():
-    """Borra mensajes del bot y comandos meta cada hora"""
     try:
         for channel_id, mensajes in list(mensajes_para_borrar.items()):
             canal = bot.get_channel(channel_id)
-            if not canal:
-                continue
-
-            # Borra solo mensajes de hace 1 hora o más
+            if not canal: continue
             hace_una_hora = datetime.utcnow() - timedelta(hours=1)
             mensajes_viejos = [msg for msg in mensajes if msg.created_at < hace_una_hora]
-
             if mensajes_viejos:
                 try:
-                    # Discord solo permite borrar mensajes de menos de 14 días
                     await canal.delete_messages(mensajes_viejos)
-                    print(f'Limpiados {len(mensajes_viejos)} mensajes en {canal.name}')
+                    print(f'Limpiados {len(mensajes_viejos)} mensajes')
                 except:
-                    # Si falla el bulk delete, borra uno por uno
                     for msg in mensajes_viejos:
-                        try:
-                            await msg.delete()
-                        except:
-                            pass
-
-                # Actualiza la lista quitando los ya borrados
+                        try: await msg.delete()
+                        except: pass
                 mensajes_para_borrar[channel_id] = [msg for msg in mensajes if msg not in mensajes_viejos]
     except Exception as e:
-        print(f'Error en limpieza automática: {e}')
+        print(f'Error en limpieza: {e}')
 
 @limpiar_canales.before_loop
 async def before_limpiar():
@@ -68,142 +56,183 @@ async def on_message(message):
         return
 
     if message.content.lower().startswith("meta "):
-        # Guarda el mensaje del usuario para borrarlo después
         if message.channel.id not in mensajes_para_borrar:
             mensajes_para_borrar[message.channel.id] = []
         mensajes_para_borrar[message.channel.id].append(message)
 
         peticion = message.content[5:].strip()
 
-        # ===== COMANDO: META PING =====
-        if peticion.lower() == "ping":
-            latencia = round(bot.latency * 1000)
-            msg = await message.channel.send(f"🏓 Pong! Latencia: `{latencia}ms` | Bot activo ✅ | Limpieza automática cada hora 🧹")
-            mensajes_para_borrar[message.channel.id].append(msg)
-            return
-
-        # ===== COMANDO: META AYUDA =====
-        if peticion.lower() == "ayuda":
-            embed = discord.Embed(title="🤖 Comandos Meta TFT - Call of Dragons", color=0x3498DB)
-            embed.add_field(name="📢 `meta alerta <texto>`", value="Alerta oficial bilingüe de guerra al canal de anuncios", inline=False)
-            embed.add_field(name="📅 `meta evento <texto>`", value="Publica evento oficial bilingüe con reacción 👍", inline=False)
-            embed.add_field(name="⚔️ `meta talentos <héroe>`", value="Top 3 builds de héroes desde YouTube + Webs TFT", inline=False)
-            embed.add_field(name="🐾 `meta mascota <nombre>`", value="Top 3 guías de mascotas con stats + skills", inline=False)
-            embed.add_field(name="📊 `meta codstats <reino>`", value="Excel con stats del reino desde dragonstat", inline=False)
-            embed.add_field(name="🔍 `meta <búsqueda>`", value="Busca en Google cualquier cosa", inline=False)
-            embed.add_field(name="🌐 `meta traducir <texto>`", value="Traduce ES ↔ EN automático", inline=False)
-            embed.add_field(name="🏓 `meta ping`", value="Checa latencia del bot", inline=False)
-            embed.add_field(name="🧹 Limpieza automática", value="Este canal se limpia cada hora. Solo borra mensajes de Meta.", inline=False)
-            embed.set_footer(text="Solo oficiales R4/R5 en este canal")
-            msg = await message.channel.send(embed=embed)
-            mensajes_para_borrar[message.channel.id].append(msg)
-            return
-
-        # ===== COMANDO: META ALERTA BILINGÜE A CANAL FIJO =====
+        # ===== META ALERTA =====
         if peticion.lower().startswith("alerta "):
-            try:
-                texto_alerta_es = peticion[7:].strip()
-                if not texto_alerta_es:
-                    msg = await message.channel.send("Uso: `meta alerta Nos atacan en el paso 4`")
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-
-                canal_anuncios = bot.get_channel(ID_CANAL_ANUNCIOS)
-                if not canal_anuncios:
-                    msg = await message.channel.send("❌ No encontré el canal de anuncios. Revisa el ID_CANAL_ANUNCIOS")
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-
-                try:
-                    texto_alerta_en = GoogleTranslator(source='es', target='en').translate(texto_alerta_es)
-                except:
-                    texto_alerta_en = "Translation failed. Check original message above."
-
-                embed = discord.Embed(color=0xF1C40F)
-                embed.add_field(name="👑 Familia TFT / TFT Family 👑", value="📢 Necesitamos el apoyo de todos / We need everyone's support.", inline=False)
-                embed.add_field(
-                    name="### 🎯 MISIÓN / MISSION ###",
-                    value=f"> 🇲🇽 **ES:** **{texto_alerta_es.upper()}**\n> 🇺🇸 **EN:** **{texto_alerta_en.upper()}**",
-                    inline=False
-                )
-                embed.add_field(name="🔥 Todos están invitados / Everyone is invited.", value="Si quieren pelear y defender / If you want to fight and defend, los esperamos / we are waiting for you.", inline=False)
-                embed.add_field(name="¡Vamos TFT / Let's go TFT! ¡Aún queda guerra por delante / War is still ahead! 👑", value="⚔️", inline=False)
-                embed.set_footer(text=f"Alerta enviada por: {message.author.display_name}")
-
-                await canal_anuncios.send("@everyone", embed=embed)
-                msg = await message.channel.send(f"✅ Alerta enviada a {canal_anuncios.mention}")
+            texto_alerta = peticion[7:].strip()
+            if not texto_alerta:
+                msg = await message.channel.send("Uso: `meta alerta <texto>`")
                 mensajes_para_borrar[message.channel.id].append(msg)
+                return
+            try:
+                traduccion = GoogleTranslator(source='auto', target='en').translate(texto_alerta)
+                embed = discord.Embed(title="🚨 ALERTA OFICIAL TFT 🚨", color=0xFF0000)
+                embed.add_field(name="🇲🇽 Español", value=texto_alerta, inline=False)
+                embed.add_field(name="🇺🇸 English", value=traduccion, inline=False)
+                embed.set_footer(text="Atentamente: R5/R4 TFT")
+                canal_anuncios = bot.get_channel(ID_CANAL_ANUNCIOS)
+                if canal_anuncios:
+                    await canal_anuncios.send("@everyone", embed=embed)
+                    msg = await message.channel.send("✅ Alerta enviada a anuncios")
+                    mensajes_para_borrar[message.channel.id].append(msg)
                 return
             except Exception as e:
-                msg = await message.channel.send(f"Error al procesar la alerta: {e}")
+                msg = await message.channel.send(f"❌ Error: {e}")
                 mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
-        # ===== COMANDO: META EVENTO BILINGÜE =====
+        # ===== META EVENTO =====
         if peticion.lower().startswith("evento "):
-            try:
-                texto_evento_es = peticion[7:].strip()
-                if not texto_evento_es:
-                    msg = await message.channel.send("Uso: `meta evento Grandes Alturas mañana 8pm server`")
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-
-                canal_anuncios = bot.get_channel(ID_CANAL_ANUNCIOS)
-                if not canal_anuncios:
-                    msg = await message.channel.send("❌ No encontré el canal de anuncios. Revisa el ID_CANAL_ANUNCIOS")
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-
-                try:
-                    texto_evento_en = GoogleTranslator(source='es', target='en').translate(texto_evento_es)
-                except:
-                    texto_evento_en = "Translation failed. Check original message above."
-
-                embed = discord.Embed(color=0x5865F2)
-                embed.add_field(name="🎉 Familia TFT / TFT Family 🎉", value="📅 **EVENTO OFICIAL / OFFICIAL EVENT**", inline=False)
-                embed.add_field(
-                    name="### 📌 EVENTO / EVENT ###",
-                    value=f"> 🇲🇽 **ES:** **{texto_evento_es.upper()}**\n> 🇺🇸 **EN:** **{texto_evento_en.upper()}**",
-                    inline=False
-                )
-                embed.add_field(name="✅ Confirmen asistencia / Confirm attendance", value="Reacciona con 👍 si vas a participar / React 👍 if you're joining", inline=False)
-                embed.add_field(name="¡Preparados TFT / Ready TFT! 🏆", value="Vamos por la victoria / Let's go for victory", inline=False)
-                embed.set_footer(text=f"Evento publicado por: {message.author.display_name}")
-
-                mensaje_evento = await canal_anuncios.send("@everyone", embed=embed)
-                await mensaje_evento.add_reaction("👍")
-                msg = await message.channel.send(f"✅ Evento publicado en {canal_anuncios.mention}")
+            texto_evento = peticion[7:].strip()
+            if not texto_evento:
+                msg = await message.channel.send("Uso: `meta evento <texto>`")
                 mensajes_para_borrar[message.channel.id].append(msg)
+                return
+            try:
+                traduccion = GoogleTranslator(source='auto', target='en').translate(texto_evento)
+                embed = discord.Embed(title="📅 EVENTO OFICIAL TFT 📅", color=0x3498DB)
+                embed.add_field(name="🇲🇽 Español", value=texto_evento, inline=False)
+                embed.add_field(name="🇺🇸 English", value=traduccion, inline=False)
+                embed.set_footer(text="Atentamente: R5/R4 TFT")
+                canal_anuncios = bot.get_channel(ID_CANAL_ANUNCIOS)
+                if canal_anuncios:
+                    msg_evento = await canal_anuncios.send("@everyone", embed=embed)
+                    await msg_evento.add_reaction("👍")
+                    msg = await message.channel.send("✅ Evento enviado a anuncios")
+                    mensajes_para_borrar[message.channel.id].append(msg)
                 return
             except Exception as e:
-                msg = await message.channel.send(f"Error al publicar evento: {e}")
+                msg = await message.channel.send(f"❌ Error: {e}")
                 mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
-        # ===== COMANDO: META TRADUCIR =====
+        # ===== META TRADUCIR =====
         if peticion.lower().startswith("traducir "):
             texto = peticion[9:].strip()
             if not texto:
-                msg = await message.channel.send("Uso: `meta traducir Hola mundo`")
+                msg = await message.channel.send("Uso: `meta traducir <texto>`")
                 mensajes_para_borrar[message.channel.id].append(msg)
                 return
-
             try:
-                idioma_detectado = GoogleTranslator().detect(texto)
-                if idioma_detectado == 'es':
-                    traducido = GoogleTranslator(source='es', target='en').translate(texto)
-                    msg = await message.channel.send(f"🇲🇽→🇺🇸 **{traducido}**")
+                deteccion = GoogleTranslator(source='auto', target='en').translate(texto)
+                if deteccion.lower() == texto.lower():
+                    traduccion = GoogleTranslator(source='en', target='es').translate(texto)
+                    msg = await message.channel.send(f"🇺🇸→🇲🇽 **{traduccion}**")
                 else:
-                    traducido = GoogleTranslator(source='auto', target='es').translate(texto)
-                    msg = await message.channel.send(f"🇺🇸→🇲🇽 **{traducido}**")
+                    msg = await message.channel.send(f"🇲🇽→🇺🇸 **{deteccion}**")
                 mensajes_para_borrar[message.channel.id].append(msg)
                 return
             except Exception as e:
-                msg = await message.channel.send(f"Error al traducir: {e}")
+                msg = await message.channel.send(f"❌ Error: {e}")
                 mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
-        # ===== COMANDO: META CODSTATS =====
+        # ===== META TALENTOS - ACTUALIZADO CON CALLOFDRAGONSGUIDES.COM =====
+        if peticion.lower().startswith("talentos "):
+            heroe = peticion[9:].strip()
+            if not heroe:
+                msg = await message.channel.send("Uso: `meta talentos <héroe>` ej: `meta talentos emrys`")
+                mensajes_para_borrar[message.channel.id].append(msg)
+                return
+            try:
+                msg = await message.channel.send(f"⚔️ Buscando builds de **{heroe}** en callofdragonsguides.com + YouTube...")
+                mensajes_para_borrar[message.channel.id].append(msg)
+
+                url_guia = f"https://callofdragonsguides.com/heroes/{heroe.lower().replace(' ', '-')}"
+                scraper = cloudscraper.create_scraper()
+                response = scraper.get(url_guia, timeout=30)
+
+                embed = discord.Embed(title=f"⚔️ Builds de {heroe.title()}", color=0xE67E22)
+
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    talentos_section = soup.find(['div', 'section'], class_=re.compile('talent|build', re.I))
+                    if talentos_section:
+                        texto_guia = talentos_section.get_text(strip=True)[:200]
+                        embed.add_field(name="📖 Guía Principal", value=f"{texto_guia}...\n[Ver guía completa]({url_guia})", inline=False)
+
+                url = "https://google.serper.dev/videos"
+                payload = {"q": f"call of dragons {heroe} talents build 2026", "num": 2}
+                headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
+                response = requests.post(url, json=payload, headers=headers)
+                data = response.json()
+                videos = data.get("videos", [])[:2]
+
+                if videos:
+                    videos_texto = ""
+                    for i, video in enumerate(videos, 1):
+                        videos_texto += f"{i}. [{video['title'][:40]}]({video['link']})\n"
+                    embed.add_field(name="🎥 Videos Top", value=videos_texto, inline=False)
+
+                if response.status_code!= 200 and not videos:
+                    await msg.edit(content=f"❌ No encontré builds para {heroe}")
+                    return
+
+                embed.set_footer(text="Fuentes: callofdragonsguides.com + YouTube")
+                await msg.delete()
+                msg_final = await message.channel.send(embed=embed)
+                mensajes_para_borrar[message.channel.id].append(msg_final)
+                return
+            except Exception as e:
+                await msg.edit(content=f"❌ Error: {e}")
+                return
+
+        # ===== META MASCOTA - ACTUALIZADO CON CODDB.APP =====
+        if peticion.lower().startswith("mascota "):
+            mascota = peticion[8:].strip()
+            if not mascota:
+                msg = await message.channel.send("Uso: `meta mascota <nombre>` ej: `meta mascota sabre`")
+                mensajes_para_borrar[message.channel.id].append(msg)
+                return
+            try:
+                msg = await message.channel.send(f"🐾 Buscando guías de **{mascota}** en coddb.app + YouTube...")
+                mensajes_para_borrar[message.channel.id].append(msg)
+
+                url_coddb = f"https://coddb.app/pets/{mascota.lower().replace(' ', '-')}"
+                scraper = cloudscraper.create_scraper()
+                response = scraper.get(url_coddb, timeout=30)
+
+                embed = discord.Embed(title=f"🐾 Guía de {mascota.title()}", color=0x1ABC9C)
+
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    stats_div = soup.find(['div', 'table'], class_=re.compile('stat|skill', re.I))
+                    if stats_div:
+                        texto_stats = stats_div.get_text(strip=True)[:200]
+                        embed.add_field(name="📊 Stats & Skills", value=f"{texto_stats}...\n[Ver en coddb.app]({url_coddb})", inline=False)
+
+                url = "https://google.serper.dev/videos"
+                payload = {"q": f"call of dragons {mascota} pet guide 2026", "num": 2}
+                headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
+                response = requests.post(url, json=payload, headers=headers)
+                data = response.json()
+                videos = data.get("videos", [])[:2]
+
+                if videos:
+                    videos_texto = ""
+                    for i, video in enumerate(videos, 1):
+                        videos_texto += f"{i}. [{video['title'][:40]}]({video['link']})\n"
+                    embed.add_field(name="🎥 Videos Top", value=videos_texto, inline=False)
+
+                if response.status_code!= 200 and not videos:
+                    await msg.edit(content=f"❌ No encontré guías para {mascota}")
+                    return
+
+                embed.set_footer(text="Fuentes: coddb.app + YouTube")
+                await msg.delete()
+                msg_final = await message.channel.send(embed=embed)
+                mensajes_para_borrar[message.channel.id].append(msg_final)
+                return
+            except Exception as e:
+                await msg.edit(content=f"❌ Error: {e}")
+                return
+
+        # ===== META CODSTATS - NUEVO CON CALLOFSTATS.COM =====
         comando_parts = peticion.lower().split()
         if len(comando_parts) >= 2 and comando_parts[0] in ["codstats", "codstat", "stats"]:
             try:
@@ -213,22 +242,24 @@ async def on_message(message):
                     mensajes_para_borrar[message.channel.id].append(msg)
                     return
 
-                msg = await message.channel.send(f"📊 Sacando stats del Reino {reino} desde dragonstat.com ~20 seg")
+                msg = await message.channel.send(f"📊 Sacando stats del Reino {reino} desde callofstats.com ~20 seg")
                 mensajes_para_borrar[message.channel.id].append(msg)
 
-                url = f"https://dragonstat.com/server/{reino}"
+                url = f"https://callofstats.com/server/{reino}"
                 scraper = cloudscraper.create_scraper()
                 response = scraper.get(url, timeout=30)
 
                 if response.status_code!= 200:
-                    await msg.edit(content=f"❌ Error {response.status_code}: No pude acceder a dragonstat")
-                    return
+                    url = f"https://dragonstats.com/server/{reino}"
+                    response = scraper.get(url, timeout=30)
+                    if response.status_code!= 200:
+                        await msg.edit(content=f"❌ Error: Reino {reino} no encontrado")
+                        return
 
                 soup = BeautifulSoup(response.text, 'html.parser')
                 tabla = soup.find('table')
-
                 if not tabla:
-                    await msg.edit(content=f"❌ No encontré la tabla. El reino {reino} no existe en dragonstat")
+                    await msg.edit(content=f"❌ No encontré tabla de stats para reino {reino}")
                     return
 
                 df = pd.read_html(str(tabla))[0]
@@ -239,226 +270,182 @@ async def on_message(message):
 
                 archivo = discord.File(output, filename=f'COD_Reino_{reino}_Stats.xlsx')
                 await msg.delete()
-                msg_final = await message.channel.send(f"✅ **Stats del Reino {reino}** | {len(df)} jugadores", file=archivo)
+                msg_final = await message.channel.send(f"✅ **Stats Reino {reino}** | {len(df)} jugadores", file=archivo)
+                mensajes_para_borrar[message.channel.id].append(msg_final)
+                return
+
+            except Exception as e:
+                await msg.edit(content=f"❌ Error: {e}")
+                return
+
+        # ===== META CHECK JUGADOR - NUEVO =====
+        if peticion.lower().startswith("check "):
+            try:
+                nombre_jugador = peticion[6:].strip()
+                if not nombre_jugador:
+                    msg = await message.channel.send("Uso: `meta check Pishiux`")
+                    mensajes_para_borrar[message.channel.id].append(msg)
+                    return
+
+                msg = await message.channel.send(f"🔍 Buscando a **{nombre_jugador}**...")
+                mensajes_para_borrar[message.channel.id].append(msg)
+
+                url_busqueda = f"https://callofstats.com/search?q={nombre_jugador}"
+                scraper = cloudscraper.create_scraper()
+                response = scraper.get(url_busqueda, timeout=30)
+                soup = BeautifulSoup(response.text, 'html.parser')
+
+                link_perfil = None
+                for a in soup.find_all('a', href=True):
+                    if '/player/' in a['href'] and nombre_jugador.lower() in a.get_text().lower():
+                        link_perfil = "https://callofstats.com" + a['href']
+                        break
+
+                if not link_perfil:
+                    await msg.edit(content=f"❌ Jugador `{nombre_jugador}` no encontrado")
+                    return
+
+                response = scraper.get(link_perfil, timeout=30)
+                soup = BeautifulSoup(response.text, 'html.parser')
+
+                def get_stat(nombre):
+                    elemento = soup.find(text=re.compile(nombre, re.I))
+                    return elemento.find_next().get_text(strip=True) if elemento else "N/A"
+
+                poder = get_stat("Power")
+                kills = get_stat("Kills")
+                muertes = get_stat("Deaths")
+                reino = get_stat("Kingdom")
+                alianza = get_stat("Alliance")
+
+                embed = discord.Embed(title=f"⚔️ {nombre_jugador}", color=0x3498DB, url=link_perfil)
+                embed.add_field(name="🏰 Reino", value=reino, inline=True)
+                embed.add_field(name="🛡️ Alianza", value=alianza, inline=True)
+                embed.add_field(name="💪 Poder", value=poder, inline=True)
+                embed.add_field(name="⚔️ Kills", value=kills, inline=True)
+                embed.add_field(name="💀 Muertes", value=muertes, inline=True)
+                try:
+                    kd = f"{float(kills.replace(',',''))/float(muertes.replace(',','')):.2f}" if kills!="N/A" and muertes!="N/A" and muertes!="0" else "N/A"
+                    embed.add_field(name="K/D", value=kd, inline=True)
+                except: pass
+                embed.set_footer(text="Fuente: callofstats.com")
+
+                await msg.delete()
+                msg_final = await message.channel.send(embed=embed)
+                mensajes_para_borrar[message.channel.id].append(msg_final)
+                return
+
+            except Exception as e:
+                await msg.edit(content=f"❌ Error buscando jugador: {e}")
+                return
+
+        # ===== META CALC - NUEVO CON CODDB.APP =====
+        if peticion.lower().startswith("calc "):
+            try:
+                args = peticion[5:].strip().split()
+                if len(args) < 2:
+                    embed = discord.Embed(title="🧮 Meta Calc - coddb.app", color=0x9B59B6)
+                    embed.description = "**Usos:**\n`meta calc tropas 100k t5` - Tiempo entrenamiento\n`meta calc speedup 30d 12h` - Convierte a speedups"
+                    embed.set_footer(text="Datos de coddb.app")
+                    msg = await message.channel.send(embed=embed)
+                    mensajes_para_borrar[message.channel.id].append(msg)
+                    return
+
+                tipo = args[0].lower()
+
+                if tipo == "tropas":
+                    cantidad = args[1].replace('k','000').replace('m','000000')
+                    tier = args[2].lower() if len(args) > 2 else "t5"
+                    tiempos_base = {"t1": 30, "t2": 45, "t3": 60, "t4": 120, "t5": 180}
+                    tiempo_seg = int(cantidad) * tiempos_base.get(tier, 180)
+                    dias = tiempo_seg // 86400
+                    horas = (tiempo_seg % 86400) // 3600
+                    mins = (tiempo_seg % 3600) // 60
+
+                    embed = discord.Embed(title="🏹 Calculadora de Entrenamiento", color=0x2ECC71)
+                    embed.add_field(name="Tropas", value=f"{args[1]} {tier.upper()}", inline=True)
+                    embed.add_field(name="Tiempo Base", value=f"{dias}d {horas}h {mins}m", inline=True)
+                    embed.add_field(name="Con 25% boost", value=f"{int(dias*0.75)}d {int(horas*0.75)}h", inline=True)
+                    embed.set_footer(text="Fuente: coddb.app | Sin buffs de alianza")
+                    msg = await message.channel.send(embed=embed)
+                    mensajes_para_borrar[message.channel.id].append(msg)
+                    return
+
+                elif tipo == "speedup":
+                    tiempo = ' '.join(args[1:])
+                    dias = int(re.findall(r'(\d+)d', tiempo)[0]) if 'd' in tiempo else 0
+                    horas = int(re.findall(r'(\d+)h', tiempo)[0]) if 'h' in tiempo else 0
+                    total_mins = (dias * 1440) + (horas * 60)
+
+                    embed = discord.Embed(title="⚡ Calculadora de Speedups", color=0xF39C12)
+                    embed.add_field(name="Tiempo", value=f"{dias}d {horas}h", inline=True)
+                    embed.add_field(name="Speedups 60min", value=f"{total_mins // 60}", inline=True)
+                    embed.add_field(name="Speedups 8h", value=f"{total_mins // 480}", inline=True)
+                    embed.add_field(name="Speedups 24h", value=f"{total_mins // 1440}", inline=True)
+                    embed.set_footer(text="Fuente: coddb.app")
+                    msg = await message.channel.send(embed=embed)
+                    mensajes_para_borrar[message.channel.id].append(msg)
+                    return
+
+                else:
+                    msg = await message.channel.send("Tipos: `tropas`, `speedup`. Ej: `meta calc tropas 50k t5`")
+                    mensajes_para_borrar[message.channel.id].append(msg)
+                    return
+
+            except Exception as e:
+                msg = await message.channel.send(f"❌ Error: {e}\nUso: `meta calc tropas 100k t5`")
+                mensajes_para_borrar[message.channel.id].append(msg)
+                return
+
+        # ===== META BÚSQUEDA GOOGLE =====
+        if len(peticion) > 0 and not peticion.lower().startswith(("alerta ", "evento ", "traducir ", "talentos ", "mascota ", "check ", "calc ")):
+            try:
+                msg = await message.channel.send(f"🔍 Buscando: **{peticion}**...")
+                mensajes_para_borrar[message.channel.id].append(msg)
+                url = "https://google.serper.dev/search"
+                payload = {"q": f"call of dragons {peticion}", "num": 3}
+                headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
+                response = requests.post(url, json=payload, headers=headers)
+                data = response.json()
+                resultados = data.get("organic", [])[:3]
+                if not resultados:
+                    await msg.edit(content="❌ No encontré resultados")
+                    return
+                embed = discord.Embed(title=f"🔍 Resultados: {peticion}", color=0x00D9FF)
+                for i, resultado in enumerate(resultados, 1):
+                    embed.add_field(name=f"{i}. {resultado['title'][:50]}", value=f"{resultado['snippet'][:100]}...\n[Link]({resultado['link']})", inline=False)
+                await msg.delete()
+                msg_final = await message.channel.send(embed=embed)
                 mensajes_para_borrar[message.channel.id].append(msg_final)
                 return
             except Exception as e:
-                msg = await message.channel.send(f"❌ Error: {e}")
-                mensajes_para_borrar[message.channel.id].append(msg)
+                await msg.edit(content=f"❌ Error: {e}")
                 return
 
-        # ===== COMANDO: META TALENTOS - HÉROES =====
-        if peticion.lower().startswith("talentos "):
-            try:
-                heroe = peticion[9:].strip().lower()
-                if not heroe:
-                    msg = await message.channel.send("Usage: `meta talentos goresh` or `meta talentos emrys pvp`")
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
+        # ===== PING =====
+        if peticion.lower() == "ping":
+            latencia = round(bot.latency * 1000)
+            msg = await message.channel.send(f"🏓 Pong! `{latencia}ms`\n✅ callofstats.com\n✅ dragonstats.com\n✅ coddb.app\n✅ callofdragonsguides.com")
+            mensajes_para_borrar[message.channel.id].append(msg)
+            return
 
-                msg = await message.channel.send(f"🔍 Comparing builds for **{heroe.title()}** from TFT channels... 10s")
-                mensajes_para_borrar[message.channel.id].append(msg)
-
-                partes = heroe.split()
-                heroe_nombre = partes[0]
-                tipo_build = partes[1] if len(partes) > 1 else "pvp"
-                query_base = f"{heroe_nombre} {tipo_build} build call of dragons 2026"
-
-                sitios = [
-                    "site:youtube.com/@BOSSNASTi",
-                    "site:youtube.com/@thefluffywafles",
-                    "site:youtube.com/@YTGunzCOD",
-                    "site:youtube.com",
-                    "site:reddit.com/r/callofdragons",
-                    "site:codgaming.gg"
-                ]
-
-                todos_los_resultados = []
-                for sitio in sitios:
-                    try:
-                        url = "https://google.serper.dev/search"
-                        headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
-                        payload = {"q": f"{query_base} {sitio}", "num": 2, "gl": "us", "hl": "en"}
-                        response = requests.post(url, headers=headers, json=payload, timeout=10)
-                        data = response.json()
-                        if "organic" in data:
-                            todos_los_resultados.extend(data["organic"][:2])
-                    except:
-                        pass
-
-                if not todos_los_resultados:
-                    await msg.edit(content=f"❌ No builds found for {heroe_nombre}")
-                    return
-
-                mejores_3 = []
-                links_usados = []
-                for resultado in todos_los_resultados:
-                    if resultado["link"] not in links_usados and len(mejores_3) < 3:
-                        mejores_3.append(resultado)
-                        links_usados.append(resultado["link"])
-
-                embed = discord.Embed(
-                    title=f"⚔️ TOP 3 Builds {heroe_nombre.title()} - {tipo_build.upper()}",
-                    color=0xF39C12,
-                    description=f"Analyzed {len(todos_los_resultados)} sources | **TFT Curated Channels**"
-                )
-
-                emojis = ["🥇", "🥈", "🥉"]
-                for i, build in enumerate(mejores_3):
-                    if "@BOSSNASTi" in build["link"]: fuente = "BOSS NASTi"
-                    elif "@thefluffywafles" in build["link"]: fuente = "Fluffy Waffles"
-                    elif "@YTGunzCOD" in build["link"]: fuente = "GunzCOD"
-                    elif "youtube" in build["link"]: fuente = "YouTube CoD"
-                    elif "reddit" in build["link"]: fuente = "Reddit"
-                    else: fuente = "CodGaming"
-
-                    if i == 0 and "youtube.com" in build["link"]:
-                        try:
-                            video_id = build["link"].split("v=")[-1].split("&")[0]
-                            embed.set_thumbnail(url=f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg")
-                        except:
-                            pass
-
-                    embed.add_field(
-                        name=f"{emojis[i]} {fuente}",
-                        value=f"**{build['title'][:55]}...**\n{build['snippet'][:130]}...\n[View Guide]({build['link']})",
-                        inline=False
-                    )
-
-                embed.add_field(
-                    name="📊 How to choose:",
-                    value="🥇 **Option 1**: Latest meta/current patch\n🥈 **Option 2**: Best for F2P/open field\n🥉 **Option 3**: Counter builds/specific use",
-                    inline=False
-                )
-                embed.set_footer(text=f"TFT | React 🥇🥈🥉 to vote | September 2026 Meta")
-                await msg.delete()
-                mensaje = await message.channel.send(embed=embed)
-                await mensaje.add_reaction("🥇")
-                await mensaje.add_reaction("🥈")
-                await mensaje.add_reaction("🥉")
-                mensajes_para_borrar[message.channel.id].append(mensaje)
-                return
-            except Exception as e:
-                msg = await message.channel.send(f"❌ Error: {e}")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                return
-
-        # ===== COMANDO: META MASCOTA - PETS =====
-        if peticion.lower().startswith("mascota "):
-            try:
-                mascota = peticion[8:].strip().lower()
-                if not mascota:
-                    msg = await message.channel.send("Usage: `meta mascota firebird` or `meta mascota polar bear pvp`")
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-
-                msg = await message.channel.send(f"🔍 Analyzing pets **{mascota.title()}** from TFT channels... 10s")
-                mensajes_para_borrar[message.channel.id].append(msg)
-
-                partes = mascota.split()
-                mascota_nombre = " ".join(partes[:-1]) if partes[-1] in ["pvp", "rally", "bears", "garrison"] else " ".join(partes)
-                tipo_uso = partes[-1] if partes[-1] in ["pvp", "rally", "bears", "garrison"] else "pvp"
-
-                query_base = f"{mascota_nombre} pet {tipo_uso} call of dragons 2026 stats skills"
-
-                sitios = [
-                    "site:youtube.com/@BOSSNASTi",
-                    "site:youtube.com/@thefluffywafles",
-                    "site:youtube.com/@YTGunzCOD",
-                    "site:youtube.com",
-                    "site:reddit.com/r/callofdragons",
-                    "site:callofdragons.fandom.com"
-                ]
-
-                todos_los_resultados = []
-                for sitio in sitios:
-                    try:
-                        url = "https://google.serper.dev/search"
-                        headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
-                        payload = {"q": f"{query_base} {sitio}", "num": 2, "gl": "us", "hl": "en"}
-                        response = requests.post(url, headers=headers, json=payload, timeout=10)
-                        data = response.json()
-                        if "organic" in data:
-                            todos_los_resultados.extend(data["organic"][:2])
-                    except:
-                        pass
-
-                if not todos_los_resultados:
-                    await msg.edit(content=f"❌ No guides found for pet {mascota_nombre}")
-                    return
-
-                mejores_3 = []
-                links_usados = []
-                for resultado in todos_los_resultados:
-                    if resultado["link"] not in links_usados and len(mejores_3) < 3:
-                        mejores_3.append(resultado)
-                        links_usados.append(resultado["link"])
-
-                embed = discord.Embed(
-                    title=f"🐾 TOP 3 Guides {mascota_nombre.title()} - {tipo_uso.upper()}",
-                    color=0x9B59B6,
-                    description=f"Analyzed {len(todos_los_resultados)} sources | **Stats + Skills + Usage**"
-                )
-
-                emojis = ["🥇", "🥈", "🥉"]
-                for i, build in enumerate(mejores_3):
-                    if "@BOSSNASTi" in build["link"]: fuente = "BOSS NASTi"
-                    elif "@thefluffywafles" in build["link"]: fuente = "Fluffy Waffles"
-                    elif "@YTGunzCOD" in build["link"]: fuente = "GunzCOD"
-                    elif "youtube" in build["link"]: fuente = "YouTube CoD"
-                    elif "reddit" in build["link"]: fuente = "Reddit"
-                    else: fuente = "Fandom Wiki"
-
-                    if i == 0 and "youtube.com" in build["link"]:
-                        try:
-                            video_id = build["link"].split("v=")[-1].split("&")[0]
-                            embed.set_thumbnail(url=f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg")
-                        except:
-                            pass
-
-                    embed.add_field(
-                        name=f"{emojis[i]} {fuente}",
-                        value=f"**{build['title'][:55]}...**\n{build['snippet'][:130]}...\n[View Guide]({build['link']})",
-                        inline=False
-                    )
-
-                embed.add_field(
-                    name="📊 What to check in each guide:",
-                    value="**Skills:** Active + Key Passives\n**Stats:** Attack/Defense/Health %\n**Best for:** PvP Field | Rally | Garrison | Bears",
-                    inline=False
-                )
-                embed.set_footer(text=f"TFT | React 🥇🥈🥉 to vote | September 2026 Meta")
-                await msg.delete()
-                mensaje = await message.channel.send(embed=embed)
-                await mensaje.add_reaction("🥇")
-                await mensaje.add_reaction("🥈")
-                await mensaje.add_reaction("🥉")
-                mensajes_para_borrar[message.channel.id].append(mensaje)
-                return
-            except Exception as e:
-                msg = await message.channel.send(f"❌ Error: {e}")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                return
-
-        # ===== COMANDO: META BUSQUEDA GOOGLE =====
-        msg = await message.channel.send(f"🔍 Buscando: `{peticion}`")
-        mensajes_para_borrar[message.channel.id].append(msg)
-        url = "https://google.serper.dev/search"
-        headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
-        payload = {"q": peticion, "gl": "mx", "hl": "es"}
-        try:
-            response = requests.post(url, headers=headers, json=payload)
-            data = response.json()
-            if "organic" in data and len(data["organic"]) > 0:
-                respuesta = data["organic"][0]["snippet"]
-                msg_resp = await message.channel.send(respuesta[:2000])
-                mensajes_para_borrar[message.channel.id].append(msg_resp)
-            else:
-                msg_resp = await message.channel.send("No encontré nada bro 🤷")
-                mensajes_para_borrar[message.channel.id].append(msg_resp)
-        except Exception as e:
-            msg_resp = await message.channel.send(f"Error: {e}")
-            mensajes_para_borrar[message.channel.id].append(msg_resp)
+        # ===== AYUDA - ACTUALIZADO =====
+        if peticion.lower() == "ayuda":
+            embed = discord.Embed(title="🤖 Comandos Meta TFT - Call of Dragons", color=0x3498DB)
+            embed.add_field(name="📢 `meta alerta <texto>`", value="Alerta oficial bilingüe", inline=False)
+            embed.add_field(name="📅 `meta evento <texto>`", value="Evento oficial bilingüe", inline=False)
+            embed.add_field(name="🌐 `meta traducir <texto>`", value="Traduce ES ↔ EN", inline=False)
+            embed.add_field(name="⚔️ `meta talentos <héroe>`", value="Top 3 builds callofdragonsguides.com + YT", inline=False)
+            embed.add_field(name="🐾 `meta mascota <nombre>`", value="Top 3 guías coddb.app + YT", inline=False)
+            embed.add_field(name="📊 `meta codstats <reino>`", value="Stats de reino desde callofstats.com", inline=False)
+            embed.add_field(name="🔍 `meta check <jugador>`", value="Stats de jugador: poder, kills, K/D", inline=False)
+            embed.add_field(name="🧮 `meta calc tropas <cant> <tier>`", value="Calcula tiempo entrenamiento T1-T5", inline=False)
+            embed.add_field(name="⚡ `meta calc speedup <tiempo>`", value="Convierte días/horas a speedups", inline=False)
+            embed.add_field(name="🔍 `meta <búsqueda>`", value="Busca en Google", inline=False)
+            embed.set_footer(text="Fuentes: callofstats.com | dragonstats.com | coddb.app | callofdragonsguides.com | YouTube")
+            msg = await message.channel.send(embed=embed)
+            mensajes_para_borrar[message.channel.id].append(msg)
+            return
 
     await bot.process_commands(message)
 
