@@ -1,8 +1,7 @@
 discord.py
-requests
 deep-translator
 pandas
 openpyxl
 beautifulsoup4
-lxml
 cloudscraper
+requests
