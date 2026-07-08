@@ -64,27 +64,29 @@ async def on_message(message):
 
         peticion = message.content[5:].strip()
 
-        # ===== META LIMPIA - VA PRIMERO PARA QUE NO LO TOME COMO BÚSQUEDA =====
+        # ===== META LIMPIA =====
         if peticion.lower() == "limpia":
             try:
-                msg = await message.channel.send("🧹 Limpiando spam de meta...")
+                msg = await message.channel.send("🧹 Limpiando spam de meta... 10 seg")
+                mensajes_para_borrar[message.channel.id].append(msg)
+                await asyncio.sleep(2)
                 borrados = 0
                 async for mensaje in message.channel.history(limit=100):
                     if mensaje.author == bot.user or mensaje.content.lower().startswith("meta "):
                         try:
                             await mensaje.delete()
                             borrados += 1
-                            await asyncio.sleep(0.4)
+                            await asyncio.sleep(0.5)
                         except:
                             pass
-
                 mensajes_para_borrar[message.channel.id] = []
                 confirmacion = await message.channel.send(f"✅ Limpieza completa: {borrados} mensajes borrados")
-                await asyncio.sleep(3)
+                await asyncio.sleep(5)
                 await confirmacion.delete()
                 return
             except Exception as e:
-                print(f"Error en meta limpia: {e}")
+                msg = await message.channel.send(f"❌ Error limpiando: {e}")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
         # ===== META ALERTA =====
@@ -167,37 +169,30 @@ async def on_message(message):
             try:
                 msg = await message.channel.send(f"⚔️ Buscando builds de **{heroe}** en callofdragonsguides.com + YouTube...")
                 mensajes_para_borrar[message.channel.id].append(msg)
-
                 url_guia = f"https://callofdragonsguides.com/heroes/{heroe.lower().replace(' ', '-')}"
                 scraper = cloudscraper.create_scraper()
                 response = scraper.get(url_guia, timeout=30)
-
                 embed = discord.Embed(title=f"⚔️ Builds de {heroe.title()}", color=0xE67E22)
-
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     talentos_section = soup.find(['div', 'section'], class_=re.compile('talent|build', re.I))
                     if talentos_section:
                         texto_guia = talentos_section.get_text(strip=True)[:200]
                         embed.add_field(name="📖 Guía Principal", value=f"{texto_guia}...\n[Ver guía completa]({url_guia})", inline=False)
-
                 url = "https://google.serper.dev/videos"
                 payload = {"q": f"call of dragons {heroe} talents build 2026", "num": 2}
                 headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
                 response = requests.post(url, json=payload, headers=headers)
                 data = response.json()
                 videos = data.get("videos", [])[:2]
-
                 if videos:
                     videos_texto = ""
                     for i, video in enumerate(videos, 1):
                         videos_texto += f"{i}. [{video['title'][:40]}]({video['link']})\n"
                     embed.add_field(name="🎥 Videos Top", value=videos_texto, inline=False)
-
                 if response.status_code!= 200 and not videos:
                     await msg.edit(content=f"❌ No encontré builds para {heroe}")
                     return
-
                 embed.set_footer(text="Fuentes: callofdragonsguides.com + YouTube")
                 await msg.delete()
                 msg_final = await message.channel.send(embed=embed)
@@ -217,37 +212,30 @@ async def on_message(message):
             try:
                 msg = await message.channel.send(f"🐾 Buscando guías de **{mascota}** en coddb.app + YouTube...")
                 mensajes_para_borrar[message.channel.id].append(msg)
-
                 url_coddb = f"https://coddb.app/pets/{mascota.lower().replace(' ', '-')}"
                 scraper = cloudscraper.create_scraper()
                 response = scraper.get(url_coddb, timeout=30)
-
                 embed = discord.Embed(title=f"🐾 Guía de {mascota.title()}", color=0x1ABC9C)
-
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     stats_div = soup.find(['div', 'table'], class_=re.compile('stat|skill', re.I))
                     if stats_div:
                         texto_stats = stats_div.get_text(strip=True)[:200]
                         embed.add_field(name="📊 Stats & Skills", value=f"{texto_stats}...\n[Ver en coddb.app]({url_coddb})", inline=False)
-
                 url = "https://google.serper.dev/videos"
                 payload = {"q": f"call of dragons {mascota} pet guide 2026", "num": 2}
                 headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
                 response = requests.post(url, json=payload, headers=headers)
                 data = response.json()
                 videos = data.get("videos", [])[:2]
-
                 if videos:
                     videos_texto = ""
                     for i, video in enumerate(videos, 1):
                         videos_texto += f"{i}. [{video['title'][:40]}]({video['link']})\n"
                     embed.add_field(name="🎥 Videos Top", value=videos_texto, inline=False)
-
                 if response.status_code!= 200 and not videos:
                     await msg.edit(content=f"❌ No encontré guías para {mascota}")
                     return
-
                 embed.set_footer(text="Fuentes: coddb.app + YouTube")
                 await msg.delete()
                 msg_final = await message.channel.send(embed=embed)
@@ -266,316 +254,39 @@ async def on_message(message):
                     msg = await message.channel.send("Uso: `meta codstats 127`")
                     mensajes_para_borrar[message.channel.id].append(msg)
                     return
-
-                msg = await message.channel.send(f"📊 Sacando stats del Reino {reino}...")
+                msg = await message.channel.send(f"📊 Sacando stats del Reino {reino} desde callofstats.com ~20 seg")
                 mensajes_para_borrar[message.channel.id].append(msg)
-
-                scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows'})
-                urls = [f"https://callofstats.com/server/{reino}", f"https://dragonstats.com/server/{reino}"]
-
-                response = None
-                for url in urls:
-                    try:
-                        await asyncio.sleep(2)
-                        response = scraper.get(url, timeout=30)
-                        if response.status_code == 200:
-                            break
-                    except:
-                        continue
-
-                if not response or response.status_code!= 200:
-                    await msg.edit(content=f"❌ Cloudflare bloqueó Railway para reino {reino}\n\n**Solución:** Usa `meta check id` con IDs de jugadores específicos")
-                    return
-
+                url = f"https://callofstats.com/server/{reino}"
+                scraper = cloudscraper.create_scraper()
+                response = scraper.get(url, timeout=30)
+                if response.status_code!= 200:
+                    url = f"https://dragonstats.com/server/{reino}"
+                    response = scraper.get(url, timeout=30)
+                    if response.status_code!= 200:
+                        await msg.edit(content=f"❌ Error: Reino {reino} no encontrado")
+                        return
                 soup = BeautifulSoup(response.text, 'html.parser')
                 tabla = soup.find('table')
                 if not tabla:
-                    await msg.edit(content=f"❌ No encontré tabla para reino {reino}. La página cargó pero sin datos.")
+                    await msg.edit(content=f"❌ No encontré tabla de stats para reino {reino}")
                     return
-
                 df = pd.read_html(str(tabla))[0]
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     df.to_excel(writer, sheet_name=f'Reino_{reino}', index=False)
                 output.seek(0)
-
                 archivo = discord.File(output, filename=f'COD_Reino_{reino}_Stats.xlsx')
                 await msg.delete()
                 msg_final = await message.channel.send(f"✅ **Stats Reino {reino}** | {len(df)} jugadores", file=archivo)
                 mensajes_para_borrar[message.channel.id].append(msg_final)
                 return
-
             except Exception as e:
-                await msg.edit(content=f"❌ Error: {str(e)[:100]}")
+                await msg.edit(content=f"❌ Error: {e}")
                 return
 
-        # ===== META CHECK JUGADOR - V6 CON MENSAJES CLAROS =====
+        # ===== META CHECK JUGADOR - V5 =====
         if peticion.lower().startswith("check "):
             try:
                 args = peticion[6:].strip().split()
                 if not args:
-                    embed = discord.Embed(title="🔍 Meta Check - Opciones", color=0x3498DB)
-                    embed.add_field(name="Por nombre", value="`meta check Pishiux`", inline=False)
-                    embed.add_field(name="Por ID", value="`meta check id 1234567`", inline=False)
-                    embed.add_field(name="Top reino", value="`meta check reino 127`", inline=False)
-                    embed.set_footer(text="ID lo sacas de callofstats.com/player/1234567")
-                    msg = await message.channel.send(embed=embed)
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-
-                scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}, delay=10)
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Referer': 'https://google.com/'
-                }
-
-                msg = await message.channel.send("🔍 Iniciando búsqueda...")
-                mensajes_para_borrar[message.channel.id].append(msg)
-
-                # OPCIÓN 1: BUSCAR POR ID
-                if args[0].lower() == "id":
-                    if len(args) < 2 or not args[1].isdigit():
-                        await msg.edit(content="Uso: `meta check id 1234567`")
-                        return
-
-                    player_id = args[1]
-                    urls_intentar = [
-                        f"https://callofstats.com/player/{player_id}",
-                        f"https://dragonstats.com/player/{player_id}"
-                    ]
-
-                    response = None
-                    url_usada = None
-                    for url in urls_intentar:
-                        await msg.edit(content=f"🔍 Probando {url.split('/')[2]}...")
-                        try:
-                            await asyncio.sleep(3)
-                            response = scraper.get(url, headers=headers, timeout=30)
-                            if response.status_code == 200 and 'player' in response.text.lower():
-                                url_usada = url
-                                break
-                        except Exception as e:
-                            print(f"Error en {url}: {e}")
-                            continue
-
-                    if not response or response.status_code!= 200 or not url_usada:
-                        await msg.edit(content=f"❌ **Cloudflare bloqueó Railway**\n\n**Causa:** Las IPs de Railway están en blacklist\n**Solución:** \n1. Abre en tu navegador: https://callofstats.com/player/{player_id}\n2. Si existe, el problema es Cloudflare\n3. Alternativa: Usa VPS o espera 1 hora")
-                        return
-
-                    link_perfil = url_usada
-                    fuente = "callofstats.com" if "callofstats" in url_usada else "dragonstats.com"
-
-                # OPCIÓN 2: BUSCAR TOP REINO
-                elif args[0].lower() == "reino":
-                    if len(args) < 2 or not args[1].isdigit():
-                        await msg.edit(content="Uso: `meta check reino 127`")
-                        return
-
-                    reino = args[1]
-                    urls_intentar = [
-                        f"https://callofstats.com/server/{reino}",
-                        f"https://dragonstats.com/server/{reino}"
-                    ]
-
-                    response = None
-                    url_usada = None
-                    for url in urls_intentar:
-                        await msg.edit(content=f"📊 Probando {url.split('/')[2]}...")
-                        try:
-                            await asyncio.sleep(3)
-                            response = scraper.get(url, headers=headers, timeout=30)
-                            if response.status_code == 200:
-                                url_usada = url
-                                break
-                        except:
-                            continue
-
-                    if not response or response.status_code!= 200:
-                        await msg.edit(content=f"❌ **Cloudflare bloqueó Railway para reino {reino}**\n\nPrueba: `meta check id 1010064` con IDs de jugadores")
-                        return
-
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    tabla = soup.find('table')
-                    if not tabla:
-                        await msg.edit(content=f"❌ No encontré tabla para reino {reino}. Página cargó pero sin datos.")
-                        return
-
-                    try:
-                        df = pd.read_html(str(tabla))[0].head(50)
-                    except:
-                        await msg.edit(content=f"❌ Error leyendo tabla del reino {reino}")
-                        return
-
-                    output = BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df.to_excel(writer, sheet_name=f'Reino_{reino}', index=False)
-                    output.seek(0)
-
-                    archivo = discord.File(output, filename=f'COD_Reino_{reino}_Top50.xlsx')
-                    await msg.delete()
-                    fuente = "callofstats.com" if "callofstats" in url_usada else "dragonstats.com"
-                    msg_final = await message.channel.send(f"✅ **Top 50 Reino {reino}** | Fuente: {fuente}", file=archivo)
-                    mensajes_para_borrar[message.channel.id].append(msg_final)
-                    return
-
-                # OPCIÓN 3: BUSCAR POR NOMBRE
-                else:
-                    nombre_jugador = ' '.join(args)
-                    await msg.edit(content=f"🔍 Buscando a **{nombre_jugador}**...")
-
-                    nombre_encoded = urllib.parse.quote(nombre_jugador)
-                    urls_busqueda = [
-                        f"https://callofstats.com/search?q={nombre_encoded}",
-                        f"https://dragonstats.com/search?query={nombre_encoded}"
-                    ]
-
-                    link_perfil = None
-                    fuente = None
-                    for url in urls_busqueda:
-                        try:
-                            await asyncio.sleep(3)
-                            response = scraper.get(url, headers=headers, timeout=30)
-                            if response.status_code == 200:
-                                soup = BeautifulSoup(response.text, 'html.parser')
-                                for a in soup.find_all('a', href=True):
-                                    if '/player/' in a['href']:
-                                        base = "https://callofstats.com" if "callofstats" in url else "https://dragonstats.com"
-                                        link_perfil = base + a['href']
-                                        fuente = base.split('//')[1]
-                                        break
-                                if link_perfil:
-                                    break
-                        except:
-                            continue
-
-                    if not link_perfil:
-                        await msg.edit(content=f"❌ Jugador `{nombre_jugador}` no encontrado o bloqueado por Cloudflare.\n\n**Usa ID directo:**\n1. Ve a callofstats.com\n2. Busca al jugador\n3. Copia el número de la URL\n4. Usa: `meta check id 1234567`")
-                        return
-
-                    await asyncio.sleep(2)
-                    response = scraper.get(link_perfil, headers=headers, timeout=30)
-                    if response.status_code!= 200:
-                        await msg.edit(content=f"❌ Error {response.status_code}: No pude cargar el perfil")
-                        return
-
-                # SCRAPEA EL PERFIL DEL JUGADOR
-                soup = BeautifulSoup(response.text, 'html.parser')
-
-                def get_stat(nombre):
-                    elemento = soup.find(text=re.compile(nombre, re.I))
-                    if elemento:
-                        parent = elemento.parent
-                        next_el = parent.find_next(['td', 'div', 'span']) if parent else None
-                        if next_el and next_el.get_text(strip=True):
-                            return next_el.get_text(strip=True)
-                        if elemento.next_sibling and str(elemento.next_sibling).strip():
-                            return str(elemento.next_sibling).strip()
-                    return "N/A"
-
-                poder = get_stat("Power")
-                kills = get_stat("Kill")
-                muertes = get_stat("Dead")
-                reino = get_stat("Kingdom")
-                alianza = get_stat("Alliance")
-                nombre_real = get_stat("Name") or args[1] if args[0].lower() == "id" else ' '.join(args)
-                player_id_extraido = link_perfil.split('/')[-1]
-
-                embed = discord.Embed(title=f"⚔️ {nombre_real}", color=0x3498DB, url=link_perfil)
-                embed.add_field(name="🆔 ID", value=player_id_extraido, inline=True)
-                embed.add_field(name="🏰 Reino", value=reino, inline=True)
-                embed.add_field(name="🛡️ Alianza", value=alianza, inline=True)
-                embed.add_field(name="💪 Poder", value=poder, inline=True)
-                embed.add_field(name="⚔️ Kills", value=kills, inline=True)
-                embed.add_field(name="💀 Muertes", value=muertes, inline=True)
-                try:
-                    if kills!="N/A" and muertes!="N/A" and muertes!="0":
-                        kd_val = float(kills.replace(',','').replace('.',''))/float(muertes.replace(',','').replace('.',''))
-                        embed.add_field(name="K/D", value=f"{kd_val:.2f}", inline=True)
-                except: pass
-                embed.set_footer(text=f"Fuente: {fuente}")
-
-                await msg.delete()
-                msg_final = await message.channel.send(embed=embed)
-                mensajes_para_borrar[message.channel.id].append(msg_final)
-                return
-
-            except Exception as e:
-                print(f"[ERROR] Meta check: {e}")
-                await msg.edit(content=f"❌ Error crítico: {str(e)[:150]}")
-                return
-
-        # ===== META CALC =====
-        if peticion.lower().startswith("calc "):
-            try:
-                args = peticion[5:].strip().split()
-                if len(args) < 2:
-                    embed = discord.Embed(title="🧮 Meta Calc - coddb.app", color=0x9B59B6)
-                    embed.description = "**Usos:**\n`meta calc tropas 100k t5` - Tiempo entrenamiento\n`meta calc speedup 30d 12h` - Convierte a speedups"
-                    embed.set_footer(text="Datos de coddb.app")
-                    msg = await message.channel.send(embed=embed)
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-
-                tipo = args[0].lower()
-
-                if tipo == "tropas":
-                    cantidad = args[1].replace('k','000').replace('m','000000')
-                    tier = args[2].lower() if len(args) > 2 else "t5"
-                    tiempos_base = {"t1": 30, "t2": 45, "t3": 60, "t4": 120, "t5": 180}
-                    tiempo_seg = int(cantidad) * tiempos_base.get(tier, 180)
-                    dias = tiempo_seg // 86400
-                    horas = (tiempo_seg % 86400) // 3600
-                    mins = (tiempo_seg % 3600) // 60
-
-                    embed = discord.Embed(title="🏹 Calculadora de Entrenamiento", color=0x2ECC71)
-                    embed.add_field(name="Tropas", value=f"{args[1]} {tier.upper()}", inline=True)
-                    embed.add_field(name="Tiempo Base", value=f"{dias}d {horas}h {mins}m", inline=True)
-                    embed.add_field(name="Con 25% boost", value=f"{int(dias*0.75)}d {int(horas*0.75)}h", inline=True)
-                    embed.set_footer(text="Fuente: coddb.app | Sin buffs de alianza")
-                    msg = await message.channel.send(embed=embed)
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-
-                elif tipo == "speedup":
-                    tiempo = ' '.join(args[1:])
-                    dias = int(re.findall(r'(\d+)d', tiempo)[0]) if 'd' in tiempo else 0
-                    horas = int(re.findall(r'(\d+)h', tiempo)[0]) if 'h' in tiempo else 0
-                    total_mins = (dias * 1440) + (horas * 60)
-
-                    embed = discord.Embed(title="⚡ Calculadora de Speedups", color=0xF39C12)
-                    embed.add_field(name="Tiempo", value=f"{dias}d {horas}h", inline=True)
-                    embed.add_field(name="Speedups 60min", value=f"{total_mins // 60}", inline=True)
-                    embed.add_field(name="Speedups 8h", value=f"{total_mins // 480}", inline=True)
-                    embed.add_field(name="Speedups 24h", value=f"{total_mins // 1440}", inline=True)
-                    embed.set_footer(text="Fuente: coddb.app")
-                    msg = await message.channel.send(embed=embed)
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-
-                else:
-                    msg = await message.channel.send("Tipos: `tropas`, `speedup`. Ej: `meta calc tropas 50k t5`")
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-
-            except Exception as e:
-                msg = await message.channel.send(f"❌ Error: {e}\nUso: `meta calc tropas 100k t5`")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                return
-
-        # ===== PING =====
-        if peticion.lower() == "ping":
-            latencia = round(bot.latency * 1000)
-            msg = await message.channel.send(f"🏓 Pong! `{latencia}ms`\n✅ callofstats.com\n✅ dragonstats.com\n✅ coddb.app\n✅ callofdragonsguides.com")
-            mensajes_para_borrar[message.channel.id].append(msg)
-            return
-
-        # ===== AYUDA =====
-        if peticion.lower() == "ayuda":
-            embed = discord.Embed(title="🤖 Comandos Meta TFT - Call of Dragons", color=0x3498DB)
-            embed.add_field(name="🧹 `meta limpia`", value="Borra todo el spam de comandos meta", inline=False)
-            embed.add_field(name="📢 `meta alerta <texto>`", value="Alerta oficial bilingüe", inline=False)
-            embed.add_field(name="📅 `meta evento <texto>`", value="Evento oficial bilingüe", inline=False)
-            embed.add_field(name="🌐 `meta traducir <texto>`", value="Traduce ES ↔ EN", inline=False)
-            embed.add_field(name="
+                    embed = discord.Embed(title="
