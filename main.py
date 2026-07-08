@@ -75,7 +75,7 @@ async def on_message(message):
 
                 msg = await message.channel.send(f"📊 Sacando stats del Reino {reino} desde dragonstat.com... tarda ~20 seg")
 
-                url = f"https://dragonstat.com/server/{reino}"
+            
                 url = f"https://cod-game-tools.farlightgames.com/manageTools?park_header=false&locale=es{reino}"
                 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
                 response = requests.get(url, headers=headers, timeout=25)
