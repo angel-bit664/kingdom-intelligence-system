@@ -64,35 +64,27 @@ async def on_message(message):
 
         peticion = message.content[5:].strip()
 
-        # ===== META LIMPIA - NUEVO =====
+        # ===== META LIMPIA - VA PRIMERO PARA QUE NO LO TOME COMO BÚSQUEDA =====
         if peticion.lower() == "limpia":
             try:
-                msg = await message.channel.send("🧹 Limpiando spam de meta... 10 seg")
-                mensajes_para_borrar[message.channel.id].append(msg)
-
-                await asyncio.sleep(2)
-
-                # Borra últimos 100 mensajes del canal que sean del bot o empiecen con "meta"
+                msg = await message.channel.send("🧹 Limpiando spam de meta...")
                 borrados = 0
                 async for mensaje in message.channel.history(limit=100):
                     if mensaje.author == bot.user or mensaje.content.lower().startswith("meta "):
                         try:
                             await mensaje.delete()
                             borrados += 1
-                            await asyncio.sleep(0.5) # Evita rate limit
+                            await asyncio.sleep(0.4)
                         except:
                             pass
 
-                # Limpia el registro
                 mensajes_para_borrar[message.channel.id] = []
-
                 confirmacion = await message.channel.send(f"✅ Limpieza completa: {borrados} mensajes borrados")
-                await asyncio.sleep(5)
+                await asyncio.sleep(3)
                 await confirmacion.delete()
                 return
             except Exception as e:
-                msg = await message.channel.send(f"❌ Error limpiando: {e}")
-                mensajes_para_borrar[message.channel.id].append(msg)
+                print(f"Error en meta limpia: {e}")
                 return
 
         # ===== META ALERTA =====
@@ -165,7 +157,7 @@ async def on_message(message):
                 mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
-        # ===== META TALENTOS - CALLOFDRAGONSGUIDES.COM + YOUTUBE =====
+        # ===== META TALENTOS =====
         if peticion.lower().startswith("talentos "):
             heroe = peticion[9:].strip()
             if not heroe:
@@ -215,7 +207,7 @@ async def on_message(message):
                 await msg.edit(content=f"❌ Error: {e}")
                 return
 
-        # ===== META MASCOTA - CODDB.APP + YOUTUBE =====
+        # ===== META MASCOTA =====
         if peticion.lower().startswith("mascota "):
             mascota = peticion[8:].strip()
             if not mascota:
@@ -265,7 +257,7 @@ async def on_message(message):
                 await msg.edit(content=f"❌ Error: {e}")
                 return
 
-        # ===== META CODSTATS - CALLOFSTATS.COM =====
+        # ===== META CODSTATS =====
         comando_parts = peticion.lower().split()
         if len(comando_parts) >= 2 and comando_parts[0] in ["codstats", "codstat", "stats"]:
             try:
@@ -275,24 +267,30 @@ async def on_message(message):
                     mensajes_para_borrar[message.channel.id].append(msg)
                     return
 
-                msg = await message.channel.send(f"📊 Sacando stats del Reino {reino} desde callofstats.com ~20 seg")
+                msg = await message.channel.send(f"📊 Sacando stats del Reino {reino}...")
                 mensajes_para_borrar[message.channel.id].append(msg)
 
-                url = f"https://callofstats.com/server/{reino}"
-                scraper = cloudscraper.create_scraper()
-                response = scraper.get(url, timeout=30)
+                scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows'})
+                urls = [f"https://callofstats.com/server/{reino}", f"https://dragonstats.com/server/{reino}"]
 
-                if response.status_code!= 200:
-                    url = f"https://dragonstats.com/server/{reino}"
-                    response = scraper.get(url, timeout=30)
-                    if response.status_code!= 200:
-                        await msg.edit(content=f"❌ Error: Reino {reino} no encontrado")
-                        return
+                response = None
+                for url in urls:
+                    try:
+                        await asyncio.sleep(2)
+                        response = scraper.get(url, timeout=30)
+                        if response.status_code == 200:
+                            break
+                    except:
+                        continue
+
+                if not response or response.status_code!= 200:
+                    await msg.edit(content=f"❌ Cloudflare bloqueó Railway para reino {reino}\n\n**Solución:** Usa `meta check id` con IDs de jugadores específicos")
+                    return
 
                 soup = BeautifulSoup(response.text, 'html.parser')
                 tabla = soup.find('table')
                 if not tabla:
-                    await msg.edit(content=f"❌ No encontré tabla de stats para reino {reino}")
+                    await msg.edit(content=f"❌ No encontré tabla para reino {reino}. La página cargó pero sin datos.")
                     return
 
                 df = pd.read_html(str(tabla))[0]
@@ -308,10 +306,10 @@ async def on_message(message):
                 return
 
             except Exception as e:
-                await msg.edit(content=f"❌ Error: {e}")
+                await msg.edit(content=f"❌ Error: {str(e)[:100]}")
                 return
 
-        # ===== META CHECK JUGADOR - V5 CON BYPASS CLOUDFLARE =====
+        # ===== META CHECK JUGADOR - V6 CON MENSAJES CLAROS =====
         if peticion.lower().startswith("check "):
             try:
                 args = peticion[6:].strip().split()
@@ -325,18 +323,12 @@ async def on_message(message):
                     mensajes_para_borrar[message.channel.id].append(msg)
                     return
 
-                scraper = cloudscraper.create_scraper(
-                    browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False, 'desktop': True},
-                    delay=10
-                )
+                scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}, delay=10)
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'DNT': '1',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1'
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Referer': 'https://google.com/'
                 }
 
                 msg = await message.channel.send("🔍 Iniciando búsqueda...")
@@ -359,16 +351,17 @@ async def on_message(message):
                     for url in urls_intentar:
                         await msg.edit(content=f"🔍 Probando {url.split('/')[2]}...")
                         try:
-                            await asyncio.sleep(2)
+                            await asyncio.sleep(3)
                             response = scraper.get(url, headers=headers, timeout=30)
-                            if response.status_code == 200:
+                            if response.status_code == 200 and 'player' in response.text.lower():
                                 url_usada = url
                                 break
-                        except:
+                        except Exception as e:
+                            print(f"Error en {url}: {e}")
                             continue
 
-                    if not response or response.status_code!= 200:
-                        await msg.edit(content=f"❌ Error: Cloudflare bloqueando Railway.\n\n**Solución:** Abre en navegador https://callofstats.com/player/{player_id} y confirma que existe.")
+                    if not response or response.status_code!= 200 or not url_usada:
+                        await msg.edit(content=f"❌ **Cloudflare bloqueó Railway**\n\n**Causa:** Las IPs de Railway están en blacklist\n**Solución:** \n1. Abre en tu navegador: https://callofstats.com/player/{player_id}\n2. Si existe, el problema es Cloudflare\n3. Alternativa: Usa VPS o espera 1 hora")
                         return
 
                     link_perfil = url_usada
@@ -391,7 +384,7 @@ async def on_message(message):
                     for url in urls_intentar:
                         await msg.edit(content=f"📊 Probando {url.split('/')[2]}...")
                         try:
-                            await asyncio.sleep(2)
+                            await asyncio.sleep(3)
                             response = scraper.get(url, headers=headers, timeout=30)
                             if response.status_code == 200:
                                 url_usada = url
@@ -400,13 +393,13 @@ async def on_message(message):
                             continue
 
                     if not response or response.status_code!= 200:
-                        await msg.edit(content=f"❌ Error: Reino {reino} bloqueado por Cloudflare")
+                        await msg.edit(content=f"❌ **Cloudflare bloqueó Railway para reino {reino}**\n\nPrueba: `meta check id 1010064` con IDs de jugadores")
                         return
 
                     soup = BeautifulSoup(response.text, 'html.parser')
                     tabla = soup.find('table')
                     if not tabla:
-                        await msg.edit(content=f"❌ No encontré tabla para reino {reino}")
+                        await msg.edit(content=f"❌ No encontré tabla para reino {reino}. Página cargó pero sin datos.")
                         return
 
                     try:
@@ -442,7 +435,7 @@ async def on_message(message):
                     fuente = None
                     for url in urls_busqueda:
                         try:
-                            await asyncio.sleep(2)
+                            await asyncio.sleep(3)
                             response = scraper.get(url, headers=headers, timeout=30)
                             if response.status_code == 200:
                                 soup = BeautifulSoup(response.text, 'html.parser')
@@ -458,9 +451,10 @@ async def on_message(message):
                             continue
 
                     if not link_perfil:
-                        await msg.edit(content=f"❌ Jugador `{nombre_jugador}` no encontrado.\n\n**Usa ID directo:**\n1. Ve a callofstats.com\n2. Busca al jugador\n3. Copia el número de la URL\n4. Usa: `meta check id 1234567`")
+                        await msg.edit(content=f"❌ Jugador `{nombre_jugador}` no encontrado o bloqueado por Cloudflare.\n\n**Usa ID directo:**\n1. Ve a callofstats.com\n2. Busca al jugador\n3. Copia el número de la URL\n4. Usa: `meta check id 1234567`")
                         return
 
+                    await asyncio.sleep(2)
                     response = scraper.get(link_perfil, headers=headers, timeout=30)
                     if response.status_code!= 200:
                         await msg.edit(content=f"❌ Error {response.status_code}: No pude cargar el perfil")
@@ -512,7 +506,7 @@ async def on_message(message):
                 await msg.edit(content=f"❌ Error crítico: {str(e)[:150]}")
                 return
 
-        # ===== META CALC - CODDB.APP =====
+        # ===== META CALC =====
         if peticion.lower().startswith("calc "):
             try:
                 args = peticion[5:].strip().split()
@@ -570,31 +564,6 @@ async def on_message(message):
                 mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
-        # ===== META BÚSQUEDA GOOGLE =====
-        if len(peticion) > 0 and not peticion.lower().startswith(("alerta ", "evento ", "traducir ", "talentos ", "mascota ", "check ", "calc ", "limpia")):
-            try:
-                msg = await message.channel.send(f"🔍 Buscando: **{peticion}**...")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                url = "https://google.serper.dev/search"
-                payload = {"q": f"call of dragons {peticion}", "num": 3}
-                headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
-                response = requests.post(url, json=payload, headers=headers)
-                data = response.json()
-                resultados = data.get("organic", [])[:3]
-                if not resultados:
-                    await msg.edit(content="❌ No encontré resultados")
-                    return
-                embed = discord.Embed(title=f"🔍 Resultados: {peticion}", color=0x00D9FF)
-                for i, resultado in enumerate(resultados, 1):
-                    embed.add_field(name=f"{i}. {resultado['title'][:50]}", value=f"{resultado['snippet'][:100]}...\n[Link]({resultado['link']})", inline=False)
-                await msg.delete()
-                msg_final = await message.channel.send(embed=embed)
-                mensajes_para_borrar[message.channel.id].append(msg_final)
-                return
-            except Exception as e:
-                await msg.edit(content=f"❌ Error: {e}")
-                return
-
         # ===== PING =====
         if peticion.lower() == "ping":
             latencia = round(bot.latency * 1000)
@@ -609,18 +578,4 @@ async def on_message(message):
             embed.add_field(name="📢 `meta alerta <texto>`", value="Alerta oficial bilingüe", inline=False)
             embed.add_field(name="📅 `meta evento <texto>`", value="Evento oficial bilingüe", inline=False)
             embed.add_field(name="🌐 `meta traducir <texto>`", value="Traduce ES ↔ EN", inline=False)
-            embed.add_field(name="⚔️ `meta talentos <héroe>`", value="Top 3 builds callofdragonsguides.com + YT", inline=False)
-            embed.add_field(name="🐾 `meta mascota <nombre>`", value="Top 3 guías coddb.app + YT", inline=False)
-            embed.add_field(name="📊 `meta codstats <reino>`", value="Stats de reino desde callofstats.com", inline=False)
-            embed.add_field(name="🔍 `meta check <nombre/id/reino>`", value="Stats jugador por nombre, ID o top reino", inline=False)
-            embed.add_field(name="🧮 `meta calc tropas <cant> <tier>`", value="Calcula tiempo entrenamiento T1-T5", inline=False)
-            embed.add_field(name="⚡ `meta calc speedup <tiempo>`", value="Convierte días/horas a speedups", inline=False)
-            embed.add_field(name="🔍 `meta <búsqueda>`", value="Busca en Google", inline=False)
-            embed.set_footer(text="Fuentes: callofstats.com | dragonstats.com | coddb.app | callofdragonsguides.com | YouTube")
-            msg = await message.channel.send(embed=embed)
-            mensajes_para_borrar[message.channel.id].append(msg)
-            return
-
-    await bot.process_commands(message)
-
-bot.run(os.getenv("DISCORD_TOKEN"))
+            embed.add_field(name="
