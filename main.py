@@ -19,7 +19,7 @@ ID_CANAL_ANUNCIOS = 1358237524249542751 # Tu canal ❄️・anuncios🔹announce
 @bot.event
 async def on_ready():
     print(f'Bot conectado como {bot.user}')
-    print('Comandos: meta ping, meta ayuda, meta alerta, meta evento, meta traducir, meta codstats, meta build, meta pet, meta <búsqueda>')
+    print('Comandos: meta ping, meta ayuda, meta alerta, meta evento, meta traducir, meta codstats, meta talentos, meta mascota, meta <búsqueda>')
 
 @bot.event
 async def on_message(message):
@@ -40,8 +40,8 @@ async def on_message(message):
             embed = discord.Embed(title="🤖 Comandos Meta TFT - Call of Dragons", color=0x3498DB)
             embed.add_field(name="📢 `meta alerta <texto>`", value="Alerta oficial bilingüe de guerra al canal de anuncios", inline=False)
             embed.add_field(name="📅 `meta evento <texto>`", value="Publica evento oficial bilingüe con reacción 👍", inline=False)
-            embed.add_field(name="⚔️ `meta build <héroe>`", value="Top 3 builds de héroes desde YouTube + Webs TFT", inline=False)
-            embed.add_field(name="🐾 `meta pet <mascota>`", value="Top 3 guías de mascotas con stats + skills", inline=False)
+            embed.add_field(name="⚔️ `meta talentos <héroe>`", value="Top 3 builds de héroes desde YouTube + Webs TFT", inline=False)
+            embed.add_field(name="🐾 `meta mascota <nombre>`", value="Top 3 guías de mascotas con stats + skills", inline=False)
             embed.add_field(name="📊 `meta codstats <reino>`", value="Excel con stats del reino desde dragonstat", inline=False)
             embed.add_field(name="🔍 `meta <búsqueda>`", value="Busca en Google cualquier cosa", inline=False)
             embed.add_field(name="🌐 `meta traducir <texto>`", value="Traduce ES ↔ EN automático", inline=False)
@@ -183,12 +183,12 @@ async def on_message(message):
                 await message.channel.send(f"❌ Error: {e}")
                 return
 
-        # ===== COMANDO NUEVO: META BUILD - HÉROES =====
-        if peticion.lower().startswith("build "):
+        # ===== COMANDO RENOMBRADO: META TALENTOS - HÉROES =====
+        if peticion.lower().startswith("talentos "):
             try:
-                heroe = peticion[6:].strip().lower()
+                heroe = peticion[9:].strip().lower()
                 if not heroe:
-                    await message.channel.send("Usage: `meta build goresh` or `meta build emrys pvp`")
+                    await message.channel.send("Usage: `meta talentos goresh` or `meta talentos emrys pvp`")
                     return
 
                 msg = await message.channel.send(f"🔍 Comparing builds for **{heroe.title()}** from TFT channels... 10s")
@@ -275,12 +275,12 @@ async def on_message(message):
                 await message.channel.send(f"❌ Error: {e}")
                 return
 
-        # ===== COMANDO NUEVO: META PET - MASCOTAS =====
-        if peticion.lower().startswith("pet "):
+        # ===== COMANDO RENOMBRADO: META MASCOTA - PETS =====
+        if peticion.lower().startswith("mascota "):
             try:
-                mascota = peticion[4:].strip().lower()
+                mascota = peticion[8:].strip().lower()
                 if not mascota:
-                    await message.channel.send("Usage: `meta pet firebird` or `meta pet polar bear pvp`")
+                    await message.channel.send("Usage: `meta mascota firebird` or `meta mascota polar bear pvp`")
                     return
 
                 msg = await message.channel.send(f"🔍 Analyzing pets **{mascota.title()}** from TFT channels... 10s")
