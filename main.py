@@ -10,6 +10,7 @@ import cloudscraper
 from datetime import datetime, timedelta
 import re
 import urllib.parse
+import asyncio
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -62,6 +63,37 @@ async def on_message(message):
         mensajes_para_borrar[message.channel.id].append(message)
 
         peticion = message.content[5:].strip()
+
+        # ===== META LIMPIA - NUEVO =====
+        if peticion.lower() == "limpia":
+            try:
+                msg = await message.channel.send("🧹 Limpiando spam de meta... 10 seg")
+                mensajes_para_borrar[message.channel.id].append(msg)
+
+                await asyncio.sleep(2)
+
+                # Borra últimos 100 mensajes del canal que sean del bot o empiecen con "meta"
+                borrados = 0
+                async for mensaje in message.channel.history(limit=100):
+                    if mensaje.author == bot.user or mensaje.content.lower().startswith("meta "):
+                        try:
+                            await mensaje.delete()
+                            borrados += 1
+                            await asyncio.sleep(0.5) # Evita rate limit
+                        except:
+                            pass
+
+                # Limpia el registro
+                mensajes_para_borrar[message.channel.id] = []
+
+                confirmacion = await message.channel.send(f"✅ Limpieza completa: {borrados} mensajes borrados")
+                await asyncio.sleep(5)
+                await confirmacion.delete()
+                return
+            except Exception as e:
+                msg = await message.channel.send(f"❌ Error limpiando: {e}")
+                mensajes_para_borrar[message.channel.id].append(msg)
+                return
 
         # ===== META ALERTA =====
         if peticion.lower().startswith("alerta "):
@@ -279,7 +311,7 @@ async def on_message(message):
                 await msg.edit(content=f"❌ Error: {e}")
                 return
 
-        # ===== META CHECK JUGADOR - V4 CON FALLBACK =====
+        # ===== META CHECK JUGADOR - V5 CON BYPASS CLOUDFLARE =====
         if peticion.lower().startswith("check "):
             try:
                 args = peticion[6:].strip().split()
@@ -294,59 +326,81 @@ async def on_message(message):
                     return
 
                 scraper = cloudscraper.create_scraper(
-                    browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}
+                    browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False, 'desktop': True},
+                    delay=10
                 )
                 headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.5',
-                    'Referer': 'https://callofstats.com/'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1'
                 }
+
+                msg = await message.channel.send("🔍 Iniciando búsqueda...")
+                mensajes_para_borrar[message.channel.id].append(msg)
 
                 # OPCIÓN 1: BUSCAR POR ID
                 if args[0].lower() == "id":
                     if len(args) < 2 or not args[1].isdigit():
-                        msg = await message.channel.send("Uso: `meta check id 1234567`\nSaca el ID de callofstats.com/player/ID")
-                        mensajes_para_borrar[message.channel.id].append(msg)
+                        await msg.edit(content="Uso: `meta check id 1234567`")
                         return
 
                     player_id = args[1]
-                    msg = await message.channel.send(f"🔍 Buscando jugador ID **{player_id}** en callofstats.com...")
-                    mensajes_para_borrar[message.channel.id].append(msg)
+                    urls_intentar = [
+                        f"https://callofstats.com/player/{player_id}",
+                        f"https://dragonstats.com/player/{player_id}"
+                    ]
 
-                    link_perfil = f"https://callofstats.com/player/{player_id}"
-                    response = scraper.get(link_perfil, headers=headers, timeout=30)
+                    response = None
+                    url_usada = None
+                    for url in urls_intentar:
+                        await msg.edit(content=f"🔍 Probando {url.split('/')[2]}...")
+                        try:
+                            await asyncio.sleep(2)
+                            response = scraper.get(url, headers=headers, timeout=30)
+                            if response.status_code == 200:
+                                url_usada = url
+                                break
+                        except:
+                            continue
 
-                    if response.status_code!= 200:
-                        await msg.edit(content=f"⚠️ callofstats.com falló, probando dragonstats.com...")
-                        link_perfil = f"https://dragonstats.com/player/{player_id}"
-                        response = scraper.get(link_perfil, headers=headers, timeout=30)
-
-                    if response.status_code!= 200:
-                        await msg.edit(content=f"❌ Error: ID {player_id} no encontrado en ninguna fuente")
+                    if not response or response.status_code!= 200:
+                        await msg.edit(content=f"❌ Error: Cloudflare bloqueando Railway.\n\n**Solución:** Abre en navegador https://callofstats.com/player/{player_id} y confirma que existe.")
                         return
+
+                    link_perfil = url_usada
+                    fuente = "callofstats.com" if "callofstats" in url_usada else "dragonstats.com"
 
                 # OPCIÓN 2: BUSCAR TOP REINO
                 elif args[0].lower() == "reino":
                     if len(args) < 2 or not args[1].isdigit():
-                        msg = await message.channel.send("Uso: `meta check reino 127`")
-                        mensajes_para_borrar[message.channel.id].append(msg)
+                        await msg.edit(content="Uso: `meta check reino 127`")
                         return
 
                     reino = args[1]
-                    msg = await message.channel.send(f"📊 Sacando top del Reino {reino}...")
-                    mensajes_para_borrar[message.channel.id].append(msg)
+                    urls_intentar = [
+                        f"https://callofstats.com/server/{reino}",
+                        f"https://dragonstats.com/server/{reino}"
+                    ]
 
-                    url = f"https://callofstats.com/server/{reino}"
-                    response = scraper.get(url, headers=headers, timeout=30)
+                    response = None
+                    url_usada = None
+                    for url in urls_intentar:
+                        await msg.edit(content=f"📊 Probando {url.split('/')[2]}...")
+                        try:
+                            await asyncio.sleep(2)
+                            response = scraper.get(url, headers=headers, timeout=30)
+                            if response.status_code == 200:
+                                url_usada = url
+                                break
+                        except:
+                            continue
 
-                    if response.status_code!= 200:
-                        await msg.edit(content=f"⚠️ callofstats.com falló, probando dragonstats.com...")
-                        url = f"https://dragonstats.com/server/{reino}"
-                        response = scraper.get(url, headers=headers, timeout=30)
-
-                    if response.status_code!= 200:
-                        await msg.edit(content=f"❌ Error: Reino {reino} no encontrado")
+                    if not response or response.status_code!= 200:
+                        await msg.edit(content=f"❌ Error: Reino {reino} bloqueado por Cloudflare")
                         return
 
                     soup = BeautifulSoup(response.text, 'html.parser')
@@ -368,7 +422,7 @@ async def on_message(message):
 
                     archivo = discord.File(output, filename=f'COD_Reino_{reino}_Top50.xlsx')
                     await msg.delete()
-                    fuente = "callofstats.com" if "callofstats" in url else "dragonstats.com"
+                    fuente = "callofstats.com" if "callofstats" in url_usada else "dragonstats.com"
                     msg_final = await message.channel.send(f"✅ **Top 50 Reino {reino}** | Fuente: {fuente}", file=archivo)
                     mensajes_para_borrar[message.channel.id].append(msg_final)
                     return
@@ -376,42 +430,43 @@ async def on_message(message):
                 # OPCIÓN 3: BUSCAR POR NOMBRE
                 else:
                     nombre_jugador = ' '.join(args)
-                    msg = await message.channel.send(f"🔍 Buscando a **{nombre_jugador}**...")
-                    mensajes_para_borrar[message.channel.id].append(msg)
+                    await msg.edit(content=f"🔍 Buscando a **{nombre_jugador}**...")
 
                     nombre_encoded = urllib.parse.quote(nombre_jugador)
-                    url_busqueda = f"https://callofstats.com/search?q={nombre_encoded}"
-                    response = scraper.get(url_busqueda, headers=headers, timeout=30)
+                    urls_busqueda = [
+                        f"https://callofstats.com/search?q={nombre_encoded}",
+                        f"https://dragonstats.com/search?query={nombre_encoded}"
+                    ]
 
                     link_perfil = None
-                    if response.status_code == 200:
-                        soup = BeautifulSoup(response.text, 'html.parser')
-                        for a in soup.find_all('a', href=True):
-                            if '/player/' in a['href']:
-                                link_perfil = "https://callofstats.com" + a['href']
-                                break
-
-                    if not link_perfil:
-                        await msg.edit(content=f"⚠️ No encontrado en callofstats, probando dragonstats.com...")
-                        url_busqueda = f"https://dragonstats.com/search?query={nombre_encoded}"
-                        response = scraper.get(url_busqueda, headers=headers, timeout=30)
-                        if response.status_code == 200:
-                            soup = BeautifulSoup(response.text, 'html.parser')
-                            for a in soup.find_all('a', href=True):
-                                if '/player/' in a['href']:
-                                    link_perfil = "https://dragonstats.com" + a['href']
+                    fuente = None
+                    for url in urls_busqueda:
+                        try:
+                            await asyncio.sleep(2)
+                            response = scraper.get(url, headers=headers, timeout=30)
+                            if response.status_code == 200:
+                                soup = BeautifulSoup(response.text, 'html.parser')
+                                for a in soup.find_all('a', href=True):
+                                    if '/player/' in a['href']:
+                                        base = "https://callofstats.com" if "callofstats" in url else "https://dragonstats.com"
+                                        link_perfil = base + a['href']
+                                        fuente = base.split('//')[1]
+                                        break
+                                if link_perfil:
                                     break
+                        except:
+                            continue
 
                     if not link_perfil:
-                        await msg.edit(content=f"❌ Jugador `{nombre_jugador}` no encontrado.\nTip: Usa `meta check id 1234567` con el ID directo")
+                        await msg.edit(content=f"❌ Jugador `{nombre_jugador}` no encontrado.\n\n**Usa ID directo:**\n1. Ve a callofstats.com\n2. Busca al jugador\n3. Copia el número de la URL\n4. Usa: `meta check id 1234567`")
+                        return
+
+                    response = scraper.get(link_perfil, headers=headers, timeout=30)
+                    if response.status_code!= 200:
+                        await msg.edit(content=f"❌ Error {response.status_code}: No pude cargar el perfil")
                         return
 
                 # SCRAPEA EL PERFIL DEL JUGADOR
-                response = scraper.get(link_perfil, headers=headers, timeout=30)
-                if response.status_code!= 200:
-                    await msg.edit(content=f"❌ Error {response.status_code}: No pude cargar el perfil")
-                    return
-
                 soup = BeautifulSoup(response.text, 'html.parser')
 
                 def get_stat(nombre):
@@ -419,10 +474,10 @@ async def on_message(message):
                     if elemento:
                         parent = elemento.parent
                         next_el = parent.find_next(['td', 'div', 'span']) if parent else None
-                        if next_el:
+                        if next_el and next_el.get_text(strip=True):
                             return next_el.get_text(strip=True)
-                        if elemento.next_sibling:
-                            return elemento.next_sibling.strip()
+                        if elemento.next_sibling and str(elemento.next_sibling).strip():
+                            return str(elemento.next_sibling).strip()
                     return "N/A"
 
                 poder = get_stat("Power")
@@ -432,7 +487,6 @@ async def on_message(message):
                 alianza = get_stat("Alliance")
                 nombre_real = get_stat("Name") or args[1] if args[0].lower() == "id" else ' '.join(args)
                 player_id_extraido = link_perfil.split('/')[-1]
-                fuente = "callofstats.com" if "callofstats" in link_perfil else "dragonstats.com"
 
                 embed = discord.Embed(title=f"⚔️ {nombre_real}", color=0x3498DB, url=link_perfil)
                 embed.add_field(name="🆔 ID", value=player_id_extraido, inline=True)
@@ -454,8 +508,8 @@ async def on_message(message):
                 return
 
             except Exception as e:
-                await msg.edit(content=f"❌ Error: {str(e)[:100]}")
-                print(f"Error en meta check: {e}")
+                print(f"[ERROR] Meta check: {e}")
+                await msg.edit(content=f"❌ Error crítico: {str(e)[:150]}")
                 return
 
         # ===== META CALC - CODDB.APP =====
@@ -517,7 +571,7 @@ async def on_message(message):
                 return
 
         # ===== META BÚSQUEDA GOOGLE =====
-        if len(peticion) > 0 and not peticion.lower().startswith(("alerta ", "evento ", "traducir ", "talentos ", "mascota ", "check ", "calc ")):
+        if len(peticion) > 0 and not peticion.lower().startswith(("alerta ", "evento ", "traducir ", "talentos ", "mascota ", "check ", "calc ", "limpia")):
             try:
                 msg = await message.channel.send(f"🔍 Buscando: **{peticion}**...")
                 mensajes_para_borrar[message.channel.id].append(msg)
@@ -551,6 +605,7 @@ async def on_message(message):
         # ===== AYUDA =====
         if peticion.lower() == "ayuda":
             embed = discord.Embed(title="🤖 Comandos Meta TFT - Call of Dragons", color=0x3498DB)
+            embed.add_field(name="🧹 `meta limpia`", value="Borra todo el spam de comandos meta", inline=False)
             embed.add_field(name="📢 `meta alerta <texto>`", value="Alerta oficial bilingüe", inline=False)
             embed.add_field(name="📅 `meta evento <texto>`", value="Evento oficial bilingüe", inline=False)
             embed.add_field(name="🌐 `meta traducir <texto>`", value="Traduce ES ↔ EN", inline=False)
