@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import os
 import requests
 from deep_translator import GoogleTranslator
@@ -7,6 +7,7 @@ import pandas as pd
 from io import BytesIO
 from bs4 import BeautifulSoup
 import cloudscraper
+from datetime import datetime, timedelta
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -15,11 +16,51 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 ID_CANAL_ANUNCIOS = 1358237524249542751 # Tu canal ❄️・anuncios🔹announcements┋📣
+ID_CANAL_META = None # Si quieres limpiar un canal específico, pon el ID aquí. None = todos los canales donde usen meta
+
+# Lista para guardar IDs de mensajes que se deben borrar
+mensajes_para_borrar = {}
 
 @bot.event
 async def on_ready():
     print(f'Bot conectado como {bot.user}')
     print('Comandos: meta ping, meta ayuda, meta alerta, meta evento, meta traducir, meta codstats, meta talentos, meta mascota, meta <búsqueda>')
+    limpiar_canales.start() # Inicia el timer de limpieza
+
+@tasks.loop(hours=1) # Se ejecuta cada hora
+async def limpiar_canales():
+    """Borra mensajes del bot y comandos meta cada hora"""
+    try:
+        for channel_id, mensajes in list(mensajes_para_borrar.items()):
+            canal = bot.get_channel(channel_id)
+            if not canal:
+                continue
+
+            # Borra solo mensajes de hace 1 hora o más
+            hace_una_hora = datetime.utcnow() - timedelta(hours=1)
+            mensajes_viejos = [msg for msg in mensajes if msg.created_at < hace_una_hora]
+
+            if mensajes_viejos:
+                try:
+                    # Discord solo permite borrar mensajes de menos de 14 días
+                    await canal.delete_messages(mensajes_viejos)
+                    print(f'Limpiados {len(mensajes_viejos)} mensajes en {canal.name}')
+                except:
+                    # Si falla el bulk delete, borra uno por uno
+                    for msg in mensajes_viejos:
+                        try:
+                            await msg.delete()
+                        except:
+                            pass
+
+                # Actualiza la lista quitando los ya borrados
+                mensajes_para_borrar[channel_id] = [msg for msg in mensajes if msg not in mensajes_viejos]
+    except Exception as e:
+        print(f'Error en limpieza automática: {e}')
+
+@limpiar_canales.before_loop
+async def before_limpiar():
+    await bot.wait_until_ready()
 
 @bot.event
 async def on_message(message):
@@ -27,12 +68,18 @@ async def on_message(message):
         return
 
     if message.content.lower().startswith("meta "):
+        # Guarda el mensaje del usuario para borrarlo después
+        if message.channel.id not in mensajes_para_borrar:
+            mensajes_para_borrar[message.channel.id] = []
+        mensajes_para_borrar[message.channel.id].append(message)
+
         peticion = message.content[5:].strip()
 
         # ===== COMANDO: META PING =====
         if peticion.lower() == "ping":
             latencia = round(bot.latency * 1000)
-            await message.channel.send(f"🏓 Pong! Latencia: `{latencia}ms` | Bot activo ✅")
+            msg = await message.channel.send(f"🏓 Pong! Latencia: `{latencia}ms` | Bot activo ✅ | Limpieza automática cada hora 🧹")
+            mensajes_para_borrar[message.channel.id].append(msg)
             return
 
         # ===== COMANDO: META AYUDA =====
@@ -46,8 +93,10 @@ async def on_message(message):
             embed.add_field(name="🔍 `meta <búsqueda>`", value="Busca en Google cualquier cosa", inline=False)
             embed.add_field(name="🌐 `meta traducir <texto>`", value="Traduce ES ↔ EN automático", inline=False)
             embed.add_field(name="🏓 `meta ping`", value="Checa latencia del bot", inline=False)
+            embed.add_field(name="🧹 Limpieza automática", value="Este canal se limpia cada hora. Solo borra mensajes de Meta.", inline=False)
             embed.set_footer(text="Solo oficiales R4/R5 en este canal")
-            await message.channel.send(embed=embed)
+            msg = await message.channel.send(embed=embed)
+            mensajes_para_borrar[message.channel.id].append(msg)
             return
 
         # ===== COMANDO: META ALERTA BILINGÜE A CANAL FIJO =====
@@ -55,12 +104,14 @@ async def on_message(message):
             try:
                 texto_alerta_es = peticion[7:].strip()
                 if not texto_alerta_es:
-                    await message.channel.send("Uso: `meta alerta Nos atacan en el paso 4`")
+                    msg = await message.channel.send("Uso: `meta alerta Nos atacan en el paso 4`")
+                    mensajes_para_borrar[message.channel.id].append(msg)
                     return
 
                 canal_anuncios = bot.get_channel(ID_CANAL_ANUNCIOS)
                 if not canal_anuncios:
-                    await message.channel.send("❌ No encontré el canal de anuncios. Revisa el ID_CANAL_ANUNCIOS")
+                    msg = await message.channel.send("❌ No encontré el canal de anuncios. Revisa el ID_CANAL_ANUNCIOS")
+                    mensajes_para_borrar[message.channel.id].append(msg)
                     return
 
                 try:
@@ -80,10 +131,12 @@ async def on_message(message):
                 embed.set_footer(text=f"Alerta enviada por: {message.author.display_name}")
 
                 await canal_anuncios.send("@everyone", embed=embed)
-                await message.channel.send(f"✅ Alerta enviada a {canal_anuncios.mention}")
+                msg = await message.channel.send(f"✅ Alerta enviada a {canal_anuncios.mention}")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
             except Exception as e:
-                await message.channel.send(f"Error al procesar la alerta: {e}")
+                msg = await message.channel.send(f"Error al procesar la alerta: {e}")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
         # ===== COMANDO: META EVENTO BILINGÜE =====
@@ -91,12 +144,14 @@ async def on_message(message):
             try:
                 texto_evento_es = peticion[7:].strip()
                 if not texto_evento_es:
-                    await message.channel.send("Uso: `meta evento Grandes Alturas mañana 8pm server`")
+                    msg = await message.channel.send("Uso: `meta evento Grandes Alturas mañana 8pm server`")
+                    mensajes_para_borrar[message.channel.id].append(msg)
                     return
 
                 canal_anuncios = bot.get_channel(ID_CANAL_ANUNCIOS)
                 if not canal_anuncios:
-                    await message.channel.send("❌ No encontré el canal de anuncios. Revisa el ID_CANAL_ANUNCIOS")
+                    msg = await message.channel.send("❌ No encontré el canal de anuncios. Revisa el ID_CANAL_ANUNCIOS")
+                    mensajes_para_borrar[message.channel.id].append(msg)
                     return
 
                 try:
@@ -117,30 +172,35 @@ async def on_message(message):
 
                 mensaje_evento = await canal_anuncios.send("@everyone", embed=embed)
                 await mensaje_evento.add_reaction("👍")
-                await message.channel.send(f"✅ Evento publicado en {canal_anuncios.mention}")
+                msg = await message.channel.send(f"✅ Evento publicado en {canal_anuncios.mention}")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
             except Exception as e:
-                await message.channel.send(f"Error al publicar evento: {e}")
+                msg = await message.channel.send(f"Error al publicar evento: {e}")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
         # ===== COMANDO: META TRADUCIR =====
         if peticion.lower().startswith("traducir "):
             texto = peticion[9:].strip()
             if not texto:
-                await message.channel.send("Uso: `meta traducir Hola mundo`")
+                msg = await message.channel.send("Uso: `meta traducir Hola mundo`")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
             try:
                 idioma_detectado = GoogleTranslator().detect(texto)
                 if idioma_detectado == 'es':
                     traducido = GoogleTranslator(source='es', target='en').translate(texto)
-                    await message.channel.send(f"🇲🇽→🇺🇸 **{traducido}**")
+                    msg = await message.channel.send(f"🇲🇽→🇺🇸 **{traducido}**")
                 else:
                     traducido = GoogleTranslator(source='auto', target='es').translate(texto)
-                    await message.channel.send(f"🇺🇸→🇲🇽 **{traducido}**")
+                    msg = await message.channel.send(f"🇺🇸→🇲🇽 **{traducido}**")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
             except Exception as e:
-                await message.channel.send(f"Error al traducir: {e}")
+                msg = await message.channel.send(f"Error al traducir: {e}")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
         # ===== COMANDO: META CODSTATS =====
@@ -149,10 +209,12 @@ async def on_message(message):
             try:
                 reino = comando_parts[1].strip()
                 if not reino.isdigit():
-                    await message.channel.send("Uso: `meta codstats 127`")
+                    msg = await message.channel.send("Uso: `meta codstats 127`")
+                    mensajes_para_borrar[message.channel.id].append(msg)
                     return
 
                 msg = await message.channel.send(f"📊 Sacando stats del Reino {reino} desde dragonstat.com ~20 seg")
+                mensajes_para_borrar[message.channel.id].append(msg)
 
                 url = f"https://dragonstat.com/server/{reino}"
                 scraper = cloudscraper.create_scraper()
@@ -177,21 +239,25 @@ async def on_message(message):
 
                 archivo = discord.File(output, filename=f'COD_Reino_{reino}_Stats.xlsx')
                 await msg.delete()
-                await message.channel.send(f"✅ **Stats del Reino {reino}** | {len(df)} jugadores", file=archivo)
+                msg_final = await message.channel.send(f"✅ **Stats del Reino {reino}** | {len(df)} jugadores", file=archivo)
+                mensajes_para_borrar[message.channel.id].append(msg_final)
                 return
             except Exception as e:
-                await message.channel.send(f"❌ Error: {e}")
+                msg = await message.channel.send(f"❌ Error: {e}")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
-        # ===== COMANDO RENOMBRADO: META TALENTOS - HÉROES =====
+        # ===== COMANDO: META TALENTOS - HÉROES =====
         if peticion.lower().startswith("talentos "):
             try:
                 heroe = peticion[9:].strip().lower()
                 if not heroe:
-                    await message.channel.send("Usage: `meta talentos goresh` or `meta talentos emrys pvp`")
+                    msg = await message.channel.send("Usage: `meta talentos goresh` or `meta talentos emrys pvp`")
+                    mensajes_para_borrar[message.channel.id].append(msg)
                     return
 
                 msg = await message.channel.send(f"🔍 Comparing builds for **{heroe.title()}** from TFT channels... 10s")
+                mensajes_para_borrar[message.channel.id].append(msg)
 
                 partes = heroe.split()
                 heroe_nombre = partes[0]
@@ -270,20 +336,24 @@ async def on_message(message):
                 await mensaje.add_reaction("🥇")
                 await mensaje.add_reaction("🥈")
                 await mensaje.add_reaction("🥉")
+                mensajes_para_borrar[message.channel.id].append(mensaje)
                 return
             except Exception as e:
-                await message.channel.send(f"❌ Error: {e}")
+                msg = await message.channel.send(f"❌ Error: {e}")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
-        # ===== COMANDO RENOMBRADO: META MASCOTA - PETS =====
+        # ===== COMANDO: META MASCOTA - PETS =====
         if peticion.lower().startswith("mascota "):
             try:
                 mascota = peticion[8:].strip().lower()
                 if not mascota:
-                    await message.channel.send("Usage: `meta mascota firebird` or `meta mascota polar bear pvp`")
+                    msg = await message.channel.send("Usage: `meta mascota firebird` or `meta mascota polar bear pvp`")
+                    mensajes_para_borrar[message.channel.id].append(msg)
                     return
 
                 msg = await message.channel.send(f"🔍 Analyzing pets **{mascota.title()}** from TFT channels... 10s")
+                mensajes_para_borrar[message.channel.id].append(msg)
 
                 partes = mascota.split()
                 mascota_nombre = " ".join(partes[:-1]) if partes[-1] in ["pvp", "rally", "bears", "garrison"] else " ".join(partes)
@@ -363,13 +433,16 @@ async def on_message(message):
                 await mensaje.add_reaction("🥇")
                 await mensaje.add_reaction("🥈")
                 await mensaje.add_reaction("🥉")
+                mensajes_para_borrar[message.channel.id].append(mensaje)
                 return
             except Exception as e:
-                await message.channel.send(f"❌ Error: {e}")
+                msg = await message.channel.send(f"❌ Error: {e}")
+                mensajes_para_borrar[message.channel.id].append(msg)
                 return
 
         # ===== COMANDO: META BUSQUEDA GOOGLE =====
-        await message.channel.send(f"🔍 Buscando: `{peticion}`")
+        msg = await message.channel.send(f"🔍 Buscando: `{peticion}`")
+        mensajes_para_borrar[message.channel.id].append(msg)
         url = "https://google.serper.dev/search"
         headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
         payload = {"q": peticion, "gl": "mx", "hl": "es"}
@@ -378,11 +451,14 @@ async def on_message(message):
             data = response.json()
             if "organic" in data and len(data["organic"]) > 0:
                 respuesta = data["organic"][0]["snippet"]
-                await message.channel.send(respuesta[:2000])
+                msg_resp = await message.channel.send(respuesta[:2000])
+                mensajes_para_borrar[message.channel.id].append(msg_resp)
             else:
-                await message.channel.send("No encontré nada bro 🤷")
+                msg_resp = await message.channel.send("No encontré nada bro 🤷")
+                mensajes_para_borrar[message.channel.id].append(msg_resp)
         except Exception as e:
-            await message.channel.send(f"Error: {e}")
+            msg_resp = await message.channel.send(f"Error: {e}")
+            mensajes_para_borrar[message.channel.id].append(msg_resp)
 
     await bot.process_commands(message)
 
