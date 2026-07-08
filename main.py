@@ -7,21 +7,19 @@ import re
 import pandas as pd
 from io import BytesIO
 from deep_translator import GoogleTranslator
-from serper import Serper
+# from serper import Serper # DESHABILITADO TEMPORALMENTE
 
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
 ID_CANAL_ANUNCIOS = int(os.getenv("ID_CANAL_ANUNCIOS", "0"))
-SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+# SERPER_API_KEY = os.getenv("SERPER_API_KEY", "") # DESHABILITADO
 
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# Diccionario para auto-borrar spam
 mensajes_para_borrar = {}
 
-# ===== EVENTOS =====
 @client.event
 async def on_ready():
     print(f'✅ Bot conectado como {client.user}')
@@ -32,7 +30,6 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    # Inicializar lista de mensajes del canal
     if message.channel.id not in mensajes_para_borrar:
         mensajes_para_borrar[message.channel.id] = []
 
@@ -84,12 +81,10 @@ async def on_message(message):
             embed.add_field(name="🌐 meta traducir <texto>", value="Traduce ES ↔ EN", inline=False)
             embed.add_field(name="🔍 meta check id <número>", value="Stats jugador por ID", inline=False)
             embed.add_field(name="🔍 meta check reino <número>", value="Top 50 reino", inline=False)
-            embed.add_field(name="⚔️ meta talentos <héroe>", value="Build + videos del héroe", inline=False)
-            embed.add_field(name="🐾 meta mascota <nombre>", value="Stats de pet + videos", inline=False)
             embed.add_field(name="📊 meta codstats <reino>", value="Excel stats completos del reino", inline=False)
             embed.add_field(name="🧮 meta calc tropas <cant> <tier>", value="Calcula tiempo entrenamiento", inline=False)
             embed.add_field(name="🧮 meta calc speedup <tiempo>", value="Convierte a speedups", inline=False)
-            embed.add_field(name="🔎 meta <búsqueda>", value="Busca info de Call of Dragons", inline=False)
+            embed.add_field(name="⚠️ meta talentos/mascota", value="Temporalmente deshabilitado", inline=False)
             embed.set_footer(text="Tip: Para IDs usa callofstats.com/player/1234567")
             msg = await message.channel.send(embed=embed)
             mensajes_para_borrar[message.channel.id].append(msg)
@@ -169,7 +164,6 @@ async def on_message(message):
                 return
 
             try:
-                # Detecta si es español o inglés
                 if re.search(r'[áéíóúñ¿¡]', texto.lower()):
                     traduccion = GoogleTranslator(source='es', target='en').translate(texto)
                     embed = discord.Embed(title="🌐 Traducción", color=0x1ABC9C)
@@ -206,7 +200,6 @@ async def on_message(message):
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
             try:
-                # CHECK POR ID
                 if args[0].lower() == "id":
                     if len(args) < 2 or not args[1].isdigit():
                         await msg.edit(content="❌ Uso: `meta check id 1234567`")
@@ -268,7 +261,6 @@ async def on_message(message):
                     msg_final = await message.channel.send(embed=embed)
                     mensajes_para_borrar[message.channel.id].append(msg_final)
 
-                # CHECK REINO
                 elif args[0].lower() == "reino":
                     if len(args) < 2 or not args[1].isdigit():
                         await msg.edit(content="❌ Uso: `meta check reino 127`")
@@ -314,100 +306,6 @@ async def on_message(message):
                 await msg.edit(content=f"❌ Error: {str(e)[:150]}")
             return
 
-        # ===== META TALENTOS =====
-        if peticion.lower().startswith("talentos "):
-            heroe = peticion[9:].strip()
-            if not heroe:
-                msg = await message.channel.send("❌ Uso: `meta talentos Waldyr`")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                return
-
-            msg = await message.channel.send(f"⚔️ Buscando build de {heroe}...")
-            mensajes_para_borrar[message.channel.id].append(msg)
-
-            try:
-                # Buscar en callofdragonsguides.com
-                scraper = cloudscraper.create_scraper()
-                url = f"https://callofdragonsguides.com/heroes/{heroe.lower()}"
-                response = scraper.get(url, timeout=15)
-
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    build = soup.find('div', class_='talent-tree')
-                    desc = build.get_text(strip=True)[:500] if build else "Build no encontrada"
-                else:
-                    desc = "No encontré ese héroe en callofdragonsguides.com"
-
-                # Buscar 2 videos en YouTube
-                if SERPER_API_KEY:
-                    serper = Serper(SERPER_API_KEY)
-                    results = serper.search(f"{heroe} call of dragons talent tree 2026", gl="us", hl="en")
-                    videos = [r for r in results.get('organic', []) if 'youtube.com' in r.get('link', '')][:2]
-                    video_text = "\n".join([f"🎥 [{v['title']}]({v['link']})" for v in videos])
-                else:
-                    video_text = "Configura SERPER_API_KEY para videos"
-
-                embed = discord.Embed(title=f"⚔️ Build: {heroe.title()}", color=0xE67E22)
-                embed.add_field(name="📋 Talent Tree", value=desc, inline=False)
-                embed.add_field(name="📺 Guías YouTube", value=video_text, inline=False)
-                embed.set_footer(text="Fuente: callofdragonsguides.com")
-
-                await msg.delete()
-                msg_final = await message.channel.send(embed=embed)
-                mensajes_para_borrar[message.channel.id].append(msg_final)
-
-            except Exception as e:
-                print(f"[ERROR] Meta talentos: {e}")
-                await msg.edit(content=f"❌ Error: {str(e)[:150]}")
-            return
-
-        # ===== META MASCOTA =====
-        if peticion.lower().startswith("mascota "):
-            pet = peticion[8:].strip()
-            if not pet:
-                msg = await message.channel.send("❌ Uso: `meta mascota venombane`")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                return
-
-            msg = await message.channel.send(f"🐾 Buscando info de {pet}...")
-            mensajes_para_borrar[message.channel.id].append(msg)
-
-            try:
-                # Buscar en coddb.app
-                scraper = cloudscraper.create_scraper()
-                url = f"https://coddb.app/pets/{pet.lower()}"
-                response = scraper.get(url, timeout=15)
-
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    stats = soup.find('div', class_='pet-stats')
-                    desc = stats.get_text(strip=True)[:500] if stats else "Stats no encontradas"
-                else:
-                    desc = "No encontré esa mascota en coddb.app"
-
-                # Buscar 2 videos
-                if SERPER_API_KEY:
-                    serper = Serper(SERPER_API_KEY)
-                    results = serper.search(f"{pet} call of dragons pet guide", gl="us", hl="en")
-                    videos = [r for r in results.get('organic', []) if 'youtube.com' in r.get('link', '')][:2]
-                    video_text = "\n".join([f"🎥 [{v['title']}]({v['link']})" for v in videos])
-                else:
-                    video_text = "Configura SERPER_API_KEY para videos"
-
-                embed = discord.Embed(title=f"🐾 Pet: {pet.title()}", color=0x27AE60)
-                embed.add_field(name="📊 Stats & Skills", value=desc, inline=False)
-                embed.add_field(name="📺 Guías YouTube", value=video_text, inline=False)
-                embed.set_footer(text="Fuente: coddb.app")
-
-                await msg.delete()
-                msg_final = await message.channel.send(embed=embed)
-                mensajes_para_borrar[message.channel.id].append(msg_final)
-
-            except Exception as e:
-                print(f"[ERROR] Meta mascota: {e}")
-                await msg.edit(content=f"❌ Error: {str(e)[:150]}")
-            return
-
         # ===== META CALC =====
         if peticion.lower().startswith("calc "):
             args = peticion[5:].strip().split()
@@ -421,7 +319,6 @@ async def on_message(message):
 
             tipo = args[0].lower()
 
-            # CALC TROPAS
             if tipo == "tropas":
                 if len(args) < 3:
                     await message.channel.send("❌ Uso: `meta calc tropas 100000 T5`")
@@ -430,8 +327,6 @@ async def on_message(message):
                 try:
                     cantidad = int(args[1].replace(',', ''))
                     tier = args[2].upper()
-
-                    # Tiempos base por tropa en segundos - Fuente: coddb.app
                     tiempos = {'T1': 30, 'T2': 60, 'T3': 120, 'T4': 240, 'T5': 480}
 
                     if tier not in tiempos:
@@ -454,7 +349,6 @@ async def on_message(message):
                 except ValueError:
                     await message.channel.send("❌ Cantidad inválida. Usa números: `meta calc tropas 100000 T5`")
 
-            # CALC SPEEDUP
             elif tipo == "speedup":
                 if len(args) < 2:
                     await message.channel.send("❌ Uso: `meta calc speedup 7d 12h 30m`")
@@ -462,18 +356,14 @@ async def on_message(message):
 
                 tiempo_str = " ".join(args[1:])
                 dias = horas = minutos = 0
-
-                # Parsear 7d 12h 30m
                 d_match = re.search(r'(\d+)d', tiempo_str)
                 h_match = re.search(r'(\d+)h', tiempo_str)
                 m_match = re.search(r'(\d+)m', tiempo_str)
-
                 if d_match: dias = int(d_match.group(1))
                 if h_match: horas = int(h_match.group(1))
                 if m_match: minutos = int(m_match.group(1))
 
                 total_horas = dias * 24 + horas + minutos / 60
-
                 speed_24h = int(total_horas // 24)
                 resto = total_horas % 24
                 speed_8h = int(resto // 8)
@@ -488,7 +378,6 @@ async def on_message(message):
 
                 msg = await message.channel.send(embed=embed)
                 mensajes_para_borrar[message.channel.id].append(msg)
-
             else:
                 await message.channel.send("❌ Uso: `meta calc tropas 100000 T5` o `meta calc speedup 7d 12h`")
             return
@@ -539,33 +428,10 @@ async def on_message(message):
                 await msg.edit(content=f"❌ Error: {str(e)[:150]}")
             return
 
-        # ===== META <BÚSQUEDA> - FALLBACK =====
-        if peticion and SERPER_API_KEY:
-            msg = await message.channel.send(f"🔎 Buscando '{peticion}'...")
+        # ===== COMANDOS DESHABILITADOS TEMPORALMENTE =====
+        if peticion.lower().startswith("talentos ") or peticion.lower().startswith("mascota "):
+            msg = await message.channel.send("⚠️ Comando deshabilitado temporalmente. Estamos migrando de Serper a requests directo.")
             mensajes_para_borrar[message.channel.id].append(msg)
-
-            try:
-                serper = Serper(SERPER_API_KEY)
-                results = serper.search(f"{peticion} call of dragons", gl="us", hl="en", num=3)
-
-                if not results.get('organic'):
-                    await msg.edit(content=f"❌ No encontré resultados para '{peticion}'")
-                    return
-
-                embed = discord.Embed(title=f"🔎 Resultados: {peticion}", color=0x3498DB)
-                for i, r in enumerate(results['organic'][:3], 1):
-                    titulo = r['title'][:50]
-                    link = r['link']
-                    snippet = r.get('snippet', '')[:100]
-                    embed.add_field(name=f"{i}. {titulo}", value=f"{snippet}\n[Ver más]({link})", inline=False)
-
-                await msg.delete()
-                msg_final = await message.channel.send(embed=embed)
-                mensajes_para_borrar[message.channel.id].append(msg_final)
-
-            except Exception as e:
-                print(f"[ERROR] Meta búsqueda: {e}")
-                await msg.edit(content=f"❌ Error buscando: {str(e)[:150]}")
             return
 
         # Si no matcheó ningún comando
