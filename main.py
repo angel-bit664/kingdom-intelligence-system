@@ -19,7 +19,7 @@ ID_CANAL_ANUNCIOS = 1358237524249542751 # Tu canal ❄️・anuncios🔹announce
 @bot.event
 async def on_ready():
     print(f'Bot conectado como {bot.user}')
-    print('Comandos: meta ping, meta ayuda, meta alerta, meta traducir, meta codstats, meta <búsqueda>')
+    print('Comandos: meta ping, meta ayuda, meta alerta, meta evento, meta traducir, meta codstats, meta <búsqueda>')
 
 @bot.event
 async def on_message(message):
@@ -38,7 +38,8 @@ async def on_message(message):
         # ===== COMANDO: META AYUDA =====
         if peticion.lower() == "ayuda":
             embed = discord.Embed(title="🤖 Comandos Meta TFT - Call of Dragons", color=0x3498DB)
-            embed.add_field(name="📢 `meta alerta <texto>`", value="Manda alerta oficial bilingüe al canal de anuncios", inline=False)
+            embed.add_field(name="📢 `meta alerta <texto>`", value="Alerta oficial bilingüe de guerra al canal de anuncios", inline=False)
+            embed.add_field(name="📅 `meta evento <texto>`", value="Publica evento oficial bilingüe con reacción 👍", inline=False)
             embed.add_field(name="📊 `meta codstats <reino>`", value="Excel con stats del reino desde dragonstat", inline=False)
             embed.add_field(name="🔍 `meta <búsqueda>`", value="Busca en Google cualquier cosa", inline=False)
             embed.add_field(name="🌐 `meta traducir <texto>`", value="Traduce ES ↔ EN automático", inline=False)
@@ -55,13 +56,11 @@ async def on_message(message):
                     await message.channel.send("Uso: `meta alerta Nos atacan en el paso 4`")
                     return
 
-                # Busca el canal de anuncios
                 canal_anuncios = bot.get_channel(ID_CANAL_ANUNCIOS)
                 if not canal_anuncios:
                     await message.channel.send("❌ No encontré el canal de anuncios. Revisa el ID_CANAL_ANUNCIOS")
                     return
 
-                # Traduce a inglés automático
                 try:
                     texto_alerta_en = GoogleTranslator(source='es', target='en').translate(texto_alerta_es)
                 except:
@@ -70,23 +69,59 @@ async def on_message(message):
                 embed = discord.Embed(color=0xF1C40F)
                 embed.add_field(name="👑 Familia TFT / TFT Family 👑", value="📢 Necesitamos el apoyo de todos / We need everyone's support.", inline=False)
                 embed.add_field(
-                    name="🎯 Misión / Mission:",
-                    value=f"🇲🇽 **ES:** {texto_alerta_es}\n🇺🇸 **EN:** {texto_alerta_en}",
+                    name="### 🎯 MISIÓN / MISSION ###",
+                    value=f"> 🇲🇽 **ES:** **{texto_alerta_es.upper()}**\n> 🇺🇸 **EN:** **{texto_alerta_en.upper()}**",
                     inline=False
                 )
                 embed.add_field(name="🔥 Todos están invitados / Everyone is invited.", value="Si quieren pelear y defender / If you want to fight and defend, los esperamos / we are waiting for you.", inline=False)
                 embed.add_field(name="¡Vamos TFT / Let's go TFT! ¡Aún queda guerra por delante / War is still ahead! 👑", value="⚔️", inline=False)
                 embed.set_footer(text=f"Alerta enviada por: {message.author.display_name}")
 
-                # Manda la alerta al canal de anuncios
                 await canal_anuncios.send("@everyone", embed=embed)
-
-                # Confirma en el canal donde escribiste el comando
                 await message.channel.send(f"✅ Alerta enviada a {canal_anuncios.mention}")
                 return
 
             except Exception as e:
                 await message.channel.send(f"Error al procesar la alerta: {e}")
+                return
+
+        # ===== COMANDO: META EVENTO BILINGÜE =====
+        if peticion.lower().startswith("evento "):
+            try:
+                texto_evento_es = peticion[7:].strip()
+                if not texto_evento_es:
+                    await message.channel.send("Uso: `meta evento Grandes Alturas mañana 8pm server`")
+                    return
+
+                canal_anuncios = bot.get_channel(ID_CANAL_ANUNCIOS)
+                if not canal_anuncios:
+                    await message.channel.send("❌ No encontré el canal de anuncios. Revisa el ID_CANAL_ANUNCIOS")
+                    return
+
+                try:
+                    texto_evento_en = GoogleTranslator(source='es', target='en').translate(texto_evento_es)
+                except:
+                    texto_evento_en = "Translation failed. Check original message above."
+
+                embed = discord.Embed(color=0x5865F2)
+                embed.add_field(name="🎉 Familia TFT / TFT Family 🎉", value="📅 **EVENTO OFICIAL / OFFICIAL EVENT**", inline=False)
+                embed.add_field(
+                    name="### 📌 EVENTO / EVENT ###",
+                    value=f"> 🇲🇽 **ES:** **{texto_evento_es.upper()}**\n> 🇺🇸 **EN:** **{texto_evento_en.upper()}**",
+                    inline=False
+                )
+                embed.add_field(name="✅ Confirmen asistencia / Confirm attendance", value="Reacciona con 👍 si vas a participar / React 👍 if you're joining", inline=False)
+                embed.add_field(name="¡Preparados TFT / Ready TFT! 🏆", value="Vamos por la victoria / Let's go for victory", inline=False)
+                embed.set_footer(text=f"Evento publicado por: {message.author.display_name}")
+
+                mensaje_evento = await canal_anuncios.send("@everyone", embed=embed)
+                await mensaje_evento.add_reaction("👍")
+
+                await message.channel.send(f"✅ Evento publicado en {canal_anuncios.mention}")
+                return
+
+            except Exception as e:
+                await message.channel.send(f"Error al publicar evento: {e}")
                 return
 
         # ===== COMANDO: META TRADUCIR =====
