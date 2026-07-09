@@ -58,38 +58,42 @@ async def on_message(message):
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        texto_plural = "SE CONECTEN" if len(usuarios_mencionados) > 1 else "SE CONECTE"
-        texto_salvarse = "salvarse" if len(usuarios_mencionados) > 1 else "salvarte"
-        texto_conecten = "Conecten" if len(usuarios_mencionados) > 1 else "Conecta"
-        texto_defiendan = "defiendan" if len(usuarios_mencionados) > 1 else "defiende"
-        texto_hagan = "Hagan" if len(usuarios_mencionados) > 1 else "Haz"
+        texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
+        texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
+        texto_escudo = "ESCUDOS" if len(usuarios_mencionados) > 1 else "ESCUDO"
 
-        descripcion = f"""👑 **Familia TFT / TFT Family** 👑
-📢 **¡NECESITAMOS QUE {texto_plural}! / WE NEED YOU ONLINE!**
+        descripcion = f"""🚨 **CÓDIGO DE EMERGENCIA TFT** 🚨
+⚠️ **ALERTA ROJA / RED ALERT** ⚠️
 
-🎯 **Misión / Mission:**
-⚔️ **{usuarios_texto}** no tienen escudo y hay enemigos cerca
-🛡️ **Opciones para {texto_salvarse} / Save yourselves:**
-1. **{texto_conecten} y {texto_defiendan} AHORA / Connect and defend NOW**
-2. **Escudo 8h YA / 8h Shield NOW**
-3. **{texto_hagan} teleport a otra zona / Teleport to safety**
+🎯 **OBJETIVO / TARGET:**
+**{usuarios_texto}**
 
-🔥 **Todos listos para defender / Everyone ready to defend**
-¡Vamos TFT! ¡Aún queda guerra por delante / War is still ahead! 👑
-⚔️"""
+❌ **ESTADO / STATUS:**
+{texto_sin} {texto_escudo} ACTIVO - ZONA DE PELIGRO
+NO ACTIVE SHIELD - DANGER ZONE
+
+🛡️ **PROTOCOLO DE EMERGENCIA / EMERGENCY PROTOCOL:**
+1. **{texto_plural} INMEDIATAMENTE / CONNECT NOW**
+2. **ESCUDO 8H YA / 8H SHIELD NOW**
+3. **TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT**
+
+⚔️ **ALIANZA TFT EN ALERTA MÁXIMA**
+TFT ALLIANCE ON MAXIMUM ALERT
+
+Código emitido por: {autor_nombre}
+⏰ TIEMPO ES CRÍTICO / TIME IS CRITICAL"""
 
         embed = discord.Embed(description=descripcion, color=0xFF0000)
-        embed.set_footer(text=f"Alerta enviada por: {autor_nombre}")
+        embed.set_footer(text=f"🚨 CÓDIGO ROJO TFT | {autor_nombre}")
 
-        # VALIDACIÓN: Solo manda a ID_CANAL_ACTIVATE, nunca a ID_CANAL_ANUNCIOS
         canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
         if not canal_activate:
             msg = await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        anuncio_msg = await canal_activate.send(content=usuarios, embed=embed)
-        ultimo_anuncio[message.channel.id] = anuncio_msg
+        # ENVÍA SOLO 1 VEZ
+        await canal_activate.send(content=usuarios, embed=embed)
         await respuesta.delete()
         await msg.delete()
         return
@@ -100,38 +104,42 @@ async def on_message(message):
         usuarios = " ".join([u.mention for u in usuarios_mencionados])
         usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
         
-        texto_plural = "SE CONECTEN" if len(usuarios_mencionados) > 1 else "SE CONECTE"
-        texto_salvarse = "salvarse" if len(usuarios_mencionados) > 1 else "salvarte"
-        texto_conecten = "Conecten" if len(usuarios_mencionados) > 1 else "Conecta"
-        texto_defiendan = "defiendan" if len(usuarios_mencionados) > 1 else "defiende"
-        texto_hagan = "Hagan" if len(usuarios_mencionados) > 1 else "Haz"
+        texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
+        texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
+        texto_escudo = "ESCUDOS" if len(usuarios_mencionados) > 1 else "ESCUDO"
         
-        descripcion = f"""👑 **Familia TFT / TFT Family** 👑
-📢 **¡NECESITAMOS QUE {texto_plural}! / WE NEED YOU ONLINE!**
+        descripcion = f"""🚨 **CÓDIGO DE EMERGENCIA TFT** 🚨
+⚠️ **ALERTA ROJA / RED ALERT** ⚠️
 
-🎯 **Misión / Mission:**
-⚔️ **{usuarios_texto}** no tienen escudo y hay enemigos cerca
-🛡️ **Opciones para {texto_salvarse} / Save yourselves:**
-1. **{texto_conecten} y {texto_defiendan} AHORA / Connect and defend NOW**
-2. **Escudo 8h YA / 8h Shield NOW**
-3. **{texto_hagan} teleport a otra zona / Teleport to safety**
+🎯 **OBJETIVO / TARGET:**
+**{usuarios_texto}**
 
-🔥 **Todos listos para defender / Everyone ready to defend**
-¡Vamos TFT! ¡Aún queda guerra por delante / War is still ahead! 👑
-⚔️"""
+❌ **ESTADO / STATUS:**
+{texto_sin} {texto_escudo} ACTIVO - ZONA DE PELIGRO
+NO ACTIVE SHIELD - DANGER ZONE
+
+🛡️ **PROTOCOLO DE EMERGENCIA / EMERGENCY PROTOCOL:**
+1. **{texto_plural} INMEDIATAMENTE / CONNECT NOW**
+2. **ESCUDO 8H YA / 8h SHIELD NOW**
+3. **TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT**
+
+⚔️ **ALIANZA TFT EN ALERTA MÁXIMA**
+TFT ALLIANCE ON MAXIMUM ALERT
+
+Código emitido por: {autor_nombre}
+⏰ TIEMPO ES CRÍTICO / TIME IS CRITICAL"""
 
         embed = discord.Embed(description=descripcion, color=0xFF0000)
-        embed.set_footer(text=f"Alerta enviada por: {autor_nombre}")
+        embed.set_footer(text=f"🚨 CÓDIGO ROJO TFT | {autor_nombre}")
 
-        # VALIDACIÓN: Solo manda a ID_CANAL_ACTIVATE, nunca a ID_CANAL_ANUNCIOS
         canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
         if not canal_activate:
             msg = await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        anuncio_msg = await canal_activate.send(content=usuarios, embed=embed)
-        ultimo_anuncio[message.channel.id] = anuncio_msg
+        # ENVÍA SOLO 1 VEZ
+        await canal_activate.send(content=usuarios, embed=embed)
         await message.delete()
         return
 
@@ -248,7 +256,7 @@ Si quieren pelear y defender / If you want to fight and defend, los esperamos / 
             embed = discord.Embed(title="📋 Comandos Meta TFT", color=0x3498DB)
             embed.add_field(name="🧹 meta limpia", value="Borra spam de meta", inline=False)
             embed.add_field(name="🏓 meta ping", value="Revisa si el bot está vivo", inline=False)
-            embed.add_field(name="🚨 meta activate @usuario1 @usuario2", value="Aviso urgente a jugadores inactivos", inline=False)
+            embed.add_field(name="🚨 meta activate @usuario1 @usuario2", value="Código de emergencia a jugadores inactivos", inline=False)
             embed.add_field(name="📢 meta alerta", value="Alerta bilingüe interactiva para @everyone", inline=False)
             embed.add_field(name="📅 meta evento", value="Evento bilingüe interactivo para @everyone", inline=False)
             embed.add_field(name="✏️ meta editar", value="Edita el último anuncio enviado", inline=False)
