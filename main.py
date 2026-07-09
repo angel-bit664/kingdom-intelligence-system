@@ -37,9 +37,9 @@ async def on_message(message):
     peticion = message.content[5:].strip()
     autor_nombre = message.author.display_name
 
-    # ===== META ACTIVATE - INTERACTIVO =====
+    # ===== META ACTIVATE - INTERACTIVO MULTIUSUARIO =====
     if peticion.lower().strip() == "activate":
-        msg = await message.channel.send("👤 Menciona al usuario a activar:")
+        msg = await message.channel.send("👤 Menciona a los usuarios a activar (puedes mencionar varios):")
         mensajes_para_borrar[message.channel.id].append(msg)
 
         def check(m):
@@ -47,23 +47,24 @@ async def on_message(message):
 
         try:
             respuesta = await client.wait_for('message', timeout=30.0, check=check)
-            usuario_mencion = respuesta.mentions[0]
-            usuario = usuario_mencion.mention
+            usuarios_mencionados = respuesta.mentions
+            usuarios = " ".join([u.mention for u in usuarios_mencionados])
+            usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
             mensajes_para_borrar[message.channel.id].append(respuesta)
         except asyncio.TimeoutError:
-            msg = await message.channel.send("⏰ Tiempo agotado. Usa `meta activate @usuario`")
+            msg = await message.channel.send("⏰ Tiempo agotado. Usa `meta activate @usuario1 @usuario2`")
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
         descripcion = f"""👑 **Familia TFT / TFT Family** 👑
-📢 **¡NECESITAMOS QUE TE CONECTES! / WE NEED YOU ONLINE!**
+📢 **¡NECESITAMOS QUE SE CONECTEN! / WE NEED YOU ONLINE!**
 
 🎯 **Misión / Mission:**
-⚔️ **{usuario}** no tiene escudo y hay enemigos cerca
-🛡️ **Opciones para salvarte / Save yourself:**
-1. **Conecta y defiende AHORA / Connect and defend NOW**
+⚔️ **{usuarios_texto}** no tienen escudo y hay enemigos cerca
+🛡️ **Opciones para salvarse / Save yourselves:**
+1. **Conecten y defiendan AHORA / Connect and defend NOW**
 2. **Escudo 8h YA / 8h Shield NOW**
-3. **Haz teleport a otra zona / Teleport to safety**
+3. **Hagan teleport a otra zona / Teleport to safety**
 
 🔥 **Todos listos para defender / Everyone ready to defend**
 ¡Vamos TFT! ¡Aún queda guerra por delante / War is still ahead! 👑
@@ -78,26 +79,28 @@ async def on_message(message):
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        # CORREGIDO: Solo taggea al usuario, SIN @everyone, y SOLO 1 MENSAJE
-        anuncio_msg = await canal_anuncios.send(content=usuario, embed=embed)
+        # SOLO TAGGEA A LOS USUARIOS, SIN @everyone
+        anuncio_msg = await canal_anuncios.send(content=usuarios, embed=embed)
         ultimo_anuncio[message.channel.id] = anuncio_msg
-        await respuesta.delete() # Borra el mensaje donde mencionaste al usuario
-        await msg.delete() # Borra el "Menciona al usuario"
+        await respuesta.delete()
+        await msg.delete()
         return
 
-    # ===== META ACTIVATE - DIRECTO =====
+    # ===== META ACTIVATE - DIRECTO MULTIUSUARIO =====
     if peticion.lower().startswith("activate ") and message.mentions:
-        usuario_mencion = message.mentions[0]
-        usuario = usuario_mencion.mention
+        usuarios_mencionados = message.mentions
+        usuarios = " ".join([u.mention for u in usuarios_mencionados])
+        usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
+        
         descripcion = f"""👑 **Familia TFT / TFT Family** 👑
-📢 **¡NECESITAMOS QUE TE CONECTES! / WE NEED YOU ONLINE!**
+📢 **¡NECESITAMOS QUE SE CONECTEN! / WE NEED YOU ONLINE!**
 
 🎯 **Misión / Mission:**
-⚔️ **{usuario}** no tiene escudo y hay enemigos cerca
-🛡️ **Opciones para salvarte / Save yourself:**
-1. **Conecta y defiende AHORA / Connect and defend NOW**
+⚔️ **{usuarios_texto}** no tienen escudo y hay enemigos cerca
+🛡️ **Opciones para salvarse / Save yourselves:**
+1. **Conecten y defiendan AHORA / Connect and defend NOW**
 2. **Escudo 8h YA / 8h Shield NOW**
-3. **Haz teleport a otra zona / Teleport to safety**
+3. **Hagan teleport a otra zona / Teleport to safety**
 
 🔥 **Todos listos para defender / Everyone ready to defend**
 ¡Vamos TFT! ¡Aún queda guerra por delante / War is still ahead! 👑
@@ -112,10 +115,10 @@ async def on_message(message):
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        # CORREGIDO: Solo taggea al usuario, SIN @everyone, y SOLO 1 MENSAJE
-        anuncio_msg = await canal_anuncios.send(content=usuario, embed=embed)
+        # SOLO TAGGEA A LOS USUARIOS, SIN @everyone
+        anuncio_msg = await canal_anuncios.send(content=usuarios, embed=embed)
         ultimo_anuncio[message.channel.id] = anuncio_msg
-        await message.delete() # Borra tu comando "meta activate @user"
+        await message.delete()
         return
 
     try:
@@ -231,7 +234,7 @@ Si quieren pelear y defender / If you want to fight and defend, los esperamos / 
             embed = discord.Embed(title="📋 Comandos Meta TFT", color=0x3498DB)
             embed.add_field(name="🧹 meta limpia", value="Borra spam de meta", inline=False)
             embed.add_field(name="🏓 meta ping", value="Revisa si el bot está vivo", inline=False)
-            embed.add_field(name="🚨 meta activate @usuario", value="Aviso urgente a jugador inactivo", inline=False)
+            embed.add_field(name="🚨 meta activate @usuario1 @usuario2", value="Aviso urgente a jugadores inactivos", inline=False)
             embed.add_field(name="📢 meta alerta", value="Alerta bilingüe interactiva para @everyone", inline=False)
             embed.add_field(name="📅 meta evento", value="Evento bilingüe interactivo para @everyone", inline=False)
             embed.add_field(name="✏️ meta editar", value="Edita el último anuncio enviado", inline=False)
@@ -243,7 +246,7 @@ Si quieren pelear y defender / If you want to fight and defend, los esperamos / 
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        # ===== META ALERTA - INTERACTIVA Y EDITABLE =====
+        # ===== META ALERTA =====
         if peticion.lower() == "alerta":
             canal = client.get_channel(ID_CANAL_ANUNCIOS)
             if not canal:
@@ -299,7 +302,7 @@ Si quieren pelear y defender / If you want to fight and defend, los esperamos / 
                 mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        # ===== META EVENTO - INTERACTIVO Y EDITABLE =====
+        # ===== META EVENTO =====
         if peticion.lower() == "evento":
             canal = client.get_channel(ID_CANAL_ANUNCIOS)
             if not canal:
