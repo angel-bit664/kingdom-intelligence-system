@@ -7,7 +7,8 @@ import re
 
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
-ID_CANAL_ANUNCIOS = 1358237524249542751
+ID_CANAL_ANUNCIOS = 1358237524249542751 # Para meta alerta y meta evento
+ID_CANAL_ACTIVATE = 1358237524799131662 # Para meta activate
 # ==================
 
 intents = discord.Intents.default()
@@ -21,7 +22,8 @@ ultimo_anuncio = {}
 async def on_ready():
     print(f'✅ Bot conectado como {client.user}')
     print(f'✅ Listo en {len(client.guilds)} servidores')
-    print(f'✅ Canal anuncios ID: {ID_CANAL_ANUNCIOS}')
+    print(f'✅ Canal anuncios: {ID_CANAL_ANUNCIOS}')
+    print(f'✅ Canal activate: {ID_CANAL_ACTIVATE}')
 
 @client.event
 async def on_message(message):
@@ -56,15 +58,21 @@ async def on_message(message):
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
+        texto_plural = "SE CONECTEN" if len(usuarios_mencionados) > 1 else "SE CONECTE"
+        texto_salvarse = "salvarse" if len(usuarios_mencionados) > 1 else "salvarte"
+        texto_conecten = "Conecten" if len(usuarios_mencionados) > 1 else "Conecta"
+        texto_defiendan = "defiendan" if len(usuarios_mencionados) > 1 else "defiende"
+        texto_hagan = "Hagan" if len(usuarios_mencionados) > 1 else "Haz"
+
         descripcion = f"""👑 **Familia TFT / TFT Family** 👑
-📢 **¡NECESITAMOS QUE SE CONECTEN! / WE NEED YOU ONLINE!**
+📢 **¡NECESITAMOS QUE {texto_plural}! / WE NEED YOU ONLINE!**
 
 🎯 **Misión / Mission:**
 ⚔️ **{usuarios_texto}** no tienen escudo y hay enemigos cerca
-🛡️ **Opciones para salvarse / Save yourselves:**
-1. **Conecten y defiendan AHORA / Connect and defend NOW**
+🛡️ **Opciones para {texto_salvarse} / Save yourselves:**
+1. **{texto_conecten} y {texto_defiendan} AHORA / Connect and defend NOW**
 2. **Escudo 8h YA / 8h Shield NOW**
-3. **Hagan teleport a otra zona / Teleport to safety**
+3. **{texto_hagan} teleport a otra zona / Teleport to safety**
 
 🔥 **Todos listos para defender / Everyone ready to defend**
 ¡Vamos TFT! ¡Aún queda guerra por delante / War is still ahead! 👑
@@ -73,14 +81,14 @@ async def on_message(message):
         embed = discord.Embed(description=descripcion, color=0xFF0000)
         embed.set_footer(text=f"Alerta enviada por: {autor_nombre}")
 
-        canal_anuncios = client.get_channel(ID_CANAL_ANUNCIOS)
-        if not canal_anuncios:
-            msg = await message.channel.send(f"❌ **No encontré el canal**\nID configurado: `{ID_CANAL_ANUNCIOS}`")
+        # CANAL DIFERENTE PARA ACTIVATE
+        canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
+        if not canal_activate:
+            msg = await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        # SOLO TAGGEA A LOS USUARIOS, SIN @everyone
-        anuncio_msg = await canal_anuncios.send(content=usuarios, embed=embed)
+        anuncio_msg = await canal_activate.send(content=usuarios, embed=embed)
         ultimo_anuncio[message.channel.id] = anuncio_msg
         await respuesta.delete()
         await msg.delete()
@@ -92,15 +100,21 @@ async def on_message(message):
         usuarios = " ".join([u.mention for u in usuarios_mencionados])
         usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
         
+        texto_plural = "SE CONECTEN" if len(usuarios_mencionados) > 1 else "SE CONECTE"
+        texto_salvarse = "salvarse" if len(usuarios_mencionados) > 1 else "salvarte"
+        texto_conecten = "Conecten" if len(usuarios_mencionados) > 1 else "Conecta"
+        texto_defiendan = "defiendan" if len(usuarios_mencionados) > 1 else "defiende"
+        texto_hagan = "Hagan" if len(usuarios_mencionados) > 1 else "Haz"
+        
         descripcion = f"""👑 **Familia TFT / TFT Family** 👑
-📢 **¡NECESITAMOS QUE SE CONECTEN! / WE NEED YOU ONLINE!**
+📢 **¡NECESITAMOS QUE {texto_plural}! / WE NEED YOU ONLINE!**
 
 🎯 **Misión / Mission:**
 ⚔️ **{usuarios_texto}** no tienen escudo y hay enemigos cerca
-🛡️ **Opciones para salvarse / Save yourselves:**
-1. **Conecten y defiendan AHORA / Connect and defend NOW**
+🛡️ **Opciones para {texto_salvarse} / Save yourselves:**
+1. **{texto_conecten} y {texto_defiendan} AHORA / Connect and defend NOW**
 2. **Escudo 8h YA / 8h Shield NOW**
-3. **Hagan teleport a otra zona / Teleport to safety**
+3. **{texto_hagan} teleport a otra zona / Teleport to safety**
 
 🔥 **Todos listos para defender / Everyone ready to defend**
 ¡Vamos TFT! ¡Aún queda guerra por delante / War is still ahead! 👑
@@ -109,14 +123,14 @@ async def on_message(message):
         embed = discord.Embed(description=descripcion, color=0xFF0000)
         embed.set_footer(text=f"Alerta enviada por: {autor_nombre}")
 
-        canal_anuncios = client.get_channel(ID_CANAL_ANUNCIOS)
-        if not canal_anuncios:
-            msg = await message.channel.send(f"❌ **No encontré el canal**\nID configurado: `{ID_CANAL_ANUNCIOS}`")
+        # CANAL DIFERENTE PARA ACTIVATE
+        canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
+        if not canal_activate:
+            msg = await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        # SOLO TAGGEA A LOS USUARIOS, SIN @everyone
-        anuncio_msg = await canal_anuncios.send(content=usuarios, embed=embed)
+        anuncio_msg = await canal_activate.send(content=usuarios, embed=embed)
         ultimo_anuncio[message.channel.id] = anuncio_msg
         await message.delete()
         return
