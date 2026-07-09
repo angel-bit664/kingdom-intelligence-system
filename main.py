@@ -11,7 +11,7 @@ from deep_translator import GoogleTranslator
 
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
-ID_CANAL_ANUNCIOS = int(os.getenv("1358237524249542751", "0"))
+ID_CANAL_ANUNCIOS = int(os.getenv("", "0"))
 
 intents = discord.Intents.default()
 intents.message_content = True
