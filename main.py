@@ -17,6 +17,7 @@ client = discord.Client(intents=intents)
 
 mensajes_para_borrar = defaultdict(list)
 ultimo_anuncio = {}
+procesando_activate = set() # CANDADO ANTI-DUPLICADOS
 
 @client.event
 async def on_ready():
@@ -39,42 +40,49 @@ async def on_message(message):
     peticion = message.content[5:].strip()
     autor_nombre = message.author.display_name
 
-    # ===== META ACTIVATE - UN SOLO BLOQUE UNIFICADO =====
+    # ===== META ACTIVATE - UN SOLO BLOQUE CON CANDADO =====
     if peticion.lower().startswith("activate"):
-        usuarios_mencionados = []
+        # CANDADO: Si ya se está procesando un activate de este usuario, ignora
+        if message.author.id in procesando_activate:
+            return
+        
+        procesando_activate.add(message.author.id)
+        
+        try:
+            usuarios_mencionados = []
 
-        # Si ya trae menciones, las usa directo
-        if message.mentions:
-            usuarios_mencionados = message.mentions
-        # Si no trae, las pide interactivo
-        else:
-            msg = await message.channel.send("👤 Menciona a los usuarios a activar (puedes mencionar varios):")
+            # Si ya trae menciones, las usa directo
+            if message.mentions:
+                usuarios_mencionados = message.mentions
+            # Si no trae, las pide interactivo
+            else:
+                msg = await message.channel.send("👤 Menciona a los usuarios a activar (puedes mencionar varios):")
 
-            def check(m):
-                return m.author == message.author and m.channel == message.channel and len(m.mentions) > 0
+                def check(m):
+                    return m.author == message.author and m.channel == message.channel and len(m.mentions) > 0
 
-            try:
-                respuesta = await client.wait_for('message', timeout=30.0, check=check)
-                usuarios_mencionados = respuesta.mentions
-                await respuesta.delete()
-                await msg.delete()
-            except asyncio.TimeoutError:
-                await message.channel.send("⏰ Tiempo agotado. Usa `meta activate @usuario1 @usuario2`")
-                await msg.delete()
+                try:
+                    respuesta = await client.wait_for('message', timeout=30.0, check=check)
+                    usuarios_mencionados = respuesta.mentions
+                    await respuesta.delete()
+                    await msg.delete()
+                except asyncio.TimeoutError:
+                    await message.channel.send("⏰ Tiempo agotado. Usa `meta activate @usuario1 @usuario2`")
+                    await msg.delete()
+                    return
+
+            if not usuarios_mencionados:
+                await message.channel.send("❌ **Debes mencionar al menos 1 usuario**\n\nEjemplo: `meta activate @Juan`")
                 return
 
-        if not usuarios_mencionados:
-            await message.channel.send("❌ **Debes mencionar al menos 1 usuario**\n\nEjemplo: `meta activate @Juan`")
-            return
+            usuarios = " ".join([u.mention for u in usuarios_mencionados])
+            usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
 
-        usuarios = " ".join([u.mention for u in usuarios_mencionados])
-        usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
+            texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
+            texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
+            texto_escudo = "ESCUDOS" if len(usuarios_mencionados) > 1 else "ESCUDO"
 
-        texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
-        texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
-        texto_escudo = "ESCUDOS" if len(usuarios_mencionados) > 1 else "ESCUDO"
-
-        descripcion = f"""🚨 **CÓDIGO DE EMERGENCIA TFT** 🚨
+            descripcion = f"""🚨 **CÓDIGO DE EMERGENCIA TFT** 🚨
 ⚠️ **ALERTA ROJA / RED ALERT** ⚠️
 
 🎯 **OBJETIVO / TARGET:**
@@ -95,17 +103,22 @@ TFT ALLIANCE ON MAXIMUM ALERT
 Código emitido por: {autor_nombre}
 ⏰ TIEMPO ES CRÍTICO / TIME IS CRITICAL"""
 
-        embed = discord.Embed(description=descripcion, color=0xFF0000)
-        embed.set_footer(text=f"🚨 CÓDIGO ROJO TFT | {autor_nombre}")
+            embed = discord.Embed(description=descripcion, color=0xFF0000)
+            embed.set_footer(text=f"🚨 CÓDIGO ROJO TFT | {autor_nombre}")
 
-        canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
-        if not canal_activate:
-            await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
-            return
+            canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
+            if not canal_activate:
+                await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
+                return
 
-        # ÚNICO SEND EN TODO EL BLOQUE - NO HAY OTRO
-        await canal_activate.send(content=usuarios, embed=embed)
-        await message.delete()
+            # ÚNICO SEND - SOLO 1 VEZ
+            await canal_activate.send(content=usuarios, embed=embed)
+            await message.delete()
+            
+        finally:
+            # QUITA EL CANDADO SIEMPRE, aunque haya error
+            procesando_activate.discard(message.author.id)
+        
         return # CORTA AQUÍ - NO EJECUTA NADA MÁS
 
     try:
