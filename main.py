@@ -7,7 +7,7 @@ import re
 
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
-ID_CANAL_ANUNCIOS = 1358237524249542751 # Solo para meta alerta y meta evento
+ID_CANAL_ANUNCIOS = 1358237524249542751 # Para meta alerta y meta evento
 ID_CANAL_ACTIVATE = 1358237524799131662 # Solo para meta activate
 # ==================
 
@@ -39,7 +39,7 @@ async def on_message(message):
     peticion = message.content[5:].strip()
     autor_nombre = message.author.display_name
 
-    # ===== META ACTIVATE - INTERACTIVO MULTIUSUARIO =====
+    # ===== META ACTIVATE - INTERACTIVO MULTIUSUARIO - CÓDIGO EMERGENCIA =====
     if peticion.lower().strip() == "activate":
         msg = await message.channel.send("👤 Menciona a los usuarios a activar (puedes mencionar varios):")
         mensajes_para_borrar[message.channel.id].append(msg)
@@ -74,7 +74,7 @@ NO ACTIVE SHIELD - DANGER ZONE
 
 🛡️ **PROTOCOLO DE EMERGENCIA / EMERGENCY PROTOCOL:**
 1. **{texto_plural} INMEDIATAMENTE / CONNECT NOW**
-2. **ESCUDO 8H YA / 8H SHIELD NOW**
+2. **ESCUDO 8H YA / 8h SHIELD NOW**
 3. **TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT**
 
 ⚔️ **ALIANZA TFT EN ALERTA MÁXIMA**
@@ -98,16 +98,16 @@ Código emitido por: {autor_nombre}
         await msg.delete()
         return
 
-    # ===== META ACTIVATE - DIRECTO MULTIUSUARIO =====
+    # ===== META ACTIVATE - DIRECTO MULTIUSUARIO - CÓDIGO EMERGENCIA =====
     if peticion.lower().startswith("activate ") and message.mentions:
         usuarios_mencionados = message.mentions
         usuarios = " ".join([u.mention for u in usuarios_mencionados])
         usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
-        
+
         texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
         texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
         texto_escudo = "ESCUDOS" if len(usuarios_mencionados) > 1 else "ESCUDO"
-        
+
         descripcion = f"""🚨 **CÓDIGO DE EMERGENCIA TFT** 🚨
 ⚠️ **ALERTA ROJA / RED ALERT** ⚠️
 
