@@ -7,17 +7,18 @@ import re
 import pandas as pd
 from io import BytesIO
 from deep_translator import GoogleTranslator
-# from serper import Serper # DESHABILITADO - Migrando a requests
+from collections import defaultdict
 
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
-ID_CANAL_ANUNCIOS = int(os.getenv("", "0"))
+ID_CANAL_ANUNCIOS = 1358237524249542751
+# ==================
 
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-mensajes_para_borrar = {}
+mensajes_para_borrar = defaultdict(list)
 
 @client.event
 async def on_ready():
@@ -38,11 +39,69 @@ async def on_message(message):
 
     peticion = message.content[5:].strip()
 
+    # ===== META ACTIVATE - INTERACTIVO =====
+    if peticion.lower().strip() == "activate":
+        msg = await message.channel.send("👤 Menciona al usuario a activar:")
+        mensajes_para_borrar[message.channel.id].append(msg)
+
+        def check(m):
+            return m.author == message.author and m.channel == message.channel and len(m.mentions) > 0
+
+        try:
+            respuesta = await client.wait_for('message', timeout=30.0, check=check)
+            usuario = respuesta.mentions[0].mention
+            mensajes_para_borrar[message.channel.id].append(respuesta)
+        except asyncio.TimeoutError:
+            msg = await message.channel.send("⏰ Tiempo agotado. Usa `meta activate @usuario`")
+            mensajes_para_borrar[message.channel.id].append(msg)
+            return
+
+        embed = discord.Embed(
+            title=f"💀 {usuario} ACTÍVATE O TE QUEMAN 💀",
+            description="🏰 **LA TORRE CAERÁ**",
+            color=0xFF0000
+        )
+        embed.add_field(name="⚔️ Situación", value="Inactivo | Sin escudo | Enemigo en zona", inline=False)
+        embed.add_field(name="🛡️ OPCIONES PARA SALVARTE", value="1. **Conecta y defiende AHORA**\n2. **Escudo 8h YA**\n3. **Haz teleport a otra zona**", inline=False)
+
+        canal_anuncios = client.get_channel(ID_CANAL_ANUNCIOS)
+        if not canal_anuncios:
+            msg = await message.channel.send(f"❌ **No encontré el canal**\nID configurado: `{ID_CANAL_ANUNCIOS}`")
+            mensajes_para_borrar[message.channel.id].append(msg)
+            return
+            
+        await canal_anuncios.send(content=f"{usuario}", embed=embed)
+        msg = await message.channel.send(f"✅ Aviso enviado a {canal_anuncios.mention}")
+        mensajes_para_borrar[message.channel.id].append(msg)
+        return
+
+    # ===== META ACTIVATE - DIRECTO =====
+    if peticion.lower().startswith("activate ") and message.mentions:
+        usuario = message.mentions[0].mention
+        embed = discord.Embed(
+            title=f"💀 {usuario} ACTÍVATE O TE QUEMAN 💀",
+            description="🏰 **LA TORRE CAERÁ**",
+            color=0xFF0000
+        )
+        embed.add_field(name="⚔️ Situación", value="Inactivo | Sin escudo | Enemigo en zona", inline=False)
+        embed.add_field(name="🛡️ OPCIONES PARA SALVARTE", value="1. **Conecta y defiende AHORA**\n2. **Escudo 8h YA**\n3. **Haz teleport a otra zona**", inline=False)
+
+        canal_anuncios = client.get_channel(ID_CANAL_ANUNCIOS)
+        if not canal_anuncios:
+            msg = await message.channel.send(f"❌ **No encontré el canal**\nID configurado: `{ID_CANAL_ANUNCIOS}`")
+            mensajes_para_borrar[message.channel.id].append(msg)
+            return
+            
+        await canal_anuncios.send(content=f"{usuario}", embed=embed)
+        msg = await message.channel.send(f"✅ Aviso enviado a {canal_anuncios.mention}")
+        mensajes_para_borrar[message.channel.id].append(msg)
+        return
+
     try:
         # ===== META LIMPIA =====
         if peticion.lower() == "limpia":
             if not message.channel.permissions_for(message.guild.me).manage_messages:
-                await message.channel.send("❌ **Sin permisos**\n\n**Cómo arreglar:**\n1. Server Settings → Roles → Meta\n2. Activa `Gestionar mensajes`\n3. O dale rol Admin al bot")
+                await message.channel.send("❌ **Sin permisos**\n\n**Cómo arreglar:**\n1. Server Settings → Roles → Me\n2. Activa 'Manage Messages'")
                 return
 
             await message.delete()
@@ -74,17 +133,18 @@ async def on_message(message):
 
         # ===== META AYUDA =====
         if peticion.lower() == "ayuda":
-            embed = discord.Embed(title="🤖 Comandos Meta TFT", color=0x3498DB)
+            embed = discord.Embed(title="📋 Comandos Meta TFT", color=0x3498DB)
             embed.add_field(name="🧹 meta limpia", value="Borra spam de meta", inline=False)
             embed.add_field(name="🏓 meta ping", value="Revisa si el bot está vivo", inline=False)
+            embed.add_field(name="🚨 meta activate @usuario", value="Aviso urgente a jugador inactivo", inline=False)
             embed.add_field(name="📢 meta alerta <texto>", value="Alerta oficial bilingüe", inline=False)
             embed.add_field(name="📅 meta evento <texto>", value="Evento bilingüe con reacción", inline=False)
             embed.add_field(name="🌐 meta traducir <texto>", value="Traduce ES ↔ EN", inline=False)
             embed.add_field(name="🔍 meta check id <número>", value="Stats jugador por ID", inline=False)
-            embed.add_field(name="🔍 meta check reino <número>", value="Top 50 reino", inline=False)
+            embed.add_field(name="🌍 meta check reino <número>", value="Top 50 reino", inline=False)
             embed.add_field(name="📊 meta codstats <reino>", value="Excel stats completos del reino", inline=False)
-            embed.add_field(name="🧮 meta calc tropas <cant> <tier>", value="Calcula tiempo entrenamiento", inline=False)
-            embed.add_field(name="🧮 meta calc speedup <tiempo>", value="Convierte a speedups", inline=False)
+            embed.add_field(name="⚔️ meta calc tropas <cant> <tier>", value="Calcula tiempo entrenamiento", inline=False)
+            embed.add_field(name="⏰ meta calc speedup <tiempo>", value="Convierte a speedups", inline=False)
             embed.add_field(name="⚠️ meta talentos/mascota", value="Deshabilitado - migrando API", inline=False)
             embed.set_footer(text="Tip: IDs se sacan de callofstats.com/player/1234567")
             msg = await message.channel.send(embed=embed)
@@ -100,12 +160,12 @@ async def on_message(message):
                 return
 
             if ID_CANAL_ANUNCIOS == 0:
-                await message.channel.send("❌ **ID_CANAL_ANUNCIOS no configurado**\n\nRailway → Variables → Agrega `ID_CANAL_ANUNCIOS` con el ID del canal")
+                await message.channel.send("❌ **ID_CANAL_ANUNCIOS no configurado**\nRailway → Variables → Agrega ID")
                 return
 
             canal = client.get_channel(ID_CANAL_ANUNCIOS)
             if not canal:
-                await message.channel.send(f"❌ **No encontré el canal**\n\nID configurado: `{ID_CANAL_ANUNCIOS}`\nVerifica que el bot esté en ese canal")
+                await message.channel.send(f"❌ **No encontré el canal**\nID configurado: `{ID_CANAL_ANUNCIOS}`")
                 return
 
             try:
@@ -113,13 +173,13 @@ async def on_message(message):
             except:
                 traduccion = "Translation failed"
 
-            embed = discord.Embed(title="📢 ALERTA OFICIAL TFT", color=0xE74C3C)
+            embed = discord.Embed(title="🚨 ALERTA OFICIAL TFT", color=0xE74C3C)
             embed.add_field(name="🇲🇽 Español", value=texto, inline=False)
             embed.add_field(name="🇺🇸 English", value=traduccion, inline=False)
             embed.set_footer(text="TFT Alliance")
 
             await canal.send("@everyone", embed=embed)
-            msg = await message.channel.send("✅ Alerta enviada a #anuncios")
+            msg = await message.channel.send(f"✅ Alerta enviada a {canal.mention}")
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
@@ -132,12 +192,12 @@ async def on_message(message):
                 return
 
             if ID_CANAL_ANUNCIOS == 0:
-                await message.channel.send("❌ **ID_CANAL_ANUNCIOS no configurado**\n\nRailway → Variables → Agrega `ID_CANAL_ANUNCIOS`")
+                await message.channel.send("❌ **ID_CANAL_ANUNCIOS no configurado**\nRailway → Variables → Agrega ID")
                 return
 
             canal = client.get_channel(ID_CANAL_ANUNCIOS)
             if not canal:
-                await message.channel.send(f"❌ **No encontré el canal**\n\nID: `{ID_CANAL_ANUNCIOS}`")
+                await message.channel.send(f"❌ **No encontré el canal**\nID: `{ID_CANAL_ANUNCIOS}`")
                 return
 
             try:
@@ -152,7 +212,7 @@ async def on_message(message):
 
             msg_evento = await canal.send("@everyone", embed=embed)
             await msg_evento.add_reaction("👍")
-            msg = await message.channel.send("✅ Evento publicado en #anuncios")
+            msg = await message.channel.send(f"✅ Evento publicado en {canal.mention}")
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
@@ -165,7 +225,7 @@ async def on_message(message):
                 return
 
             try:
-                if re.search(r'[áéíóúñ¿¡]', texto.lower()):
+                if re.search(r'[áéíóúñ]', texto.lower()):
                     traduccion = GoogleTranslator(source='es', target='en').translate(texto)
                     embed = discord.Embed(title="🌐 Traducción", color=0x1ABC9C)
                     embed.add_field(name="🇲🇽 Español", value=texto, inline=False)
@@ -203,7 +263,7 @@ async def on_message(message):
             try:
                 if args[0].lower() == "id":
                     if len(args) < 2 or not args[1].isdigit():
-                        await msg.edit(content="❌ **Uso:** `meta check id 1234567`\n\n**Cómo sacar ID:**\n1. Ve a callofstats.com\n2. Busca al jugador\n3. Copia número de URL: `player/1234567`")
+                        await msg.edit(content="❌ **Uso:** `meta check id 1234567`\n\n**Cómo sacar ID:**\n1. Ve a callofstats.com\n2. Busca jugador\n3. Copia número de URL")
                         return
 
                     player_id = args[1]
@@ -213,10 +273,10 @@ async def on_message(message):
                     response = scraper.get(url, headers=headers, timeout=25)
 
                     if response.status_code == 404:
-                        await msg.edit(content=f"❌ **Error 404**: ID `{player_id}` no existe\n\n**Saca el ID correcto:**\n1. callofstats.com → Busca jugador\n2. URL: `callofstats.com/player/1234567`\n3. Usa ese `1234567`")
+                        await msg.edit(content=f"❌ **Error 404**: ID `{player_id}` no existe\n\n**Saca el ID correcto:**\n1. callofstats.com/player/...\n2. Copia SOLO el número")
                         return
                     elif response.status_code == 403:
-                        await msg.edit(content=f"❌ **Error 403**: Cloudflare bloqueó Railway\n\n**Solución:** Abre {url} en tu navegador para confirmar que existe. Si carga, Railway está bloqueado temporalmente.")
+                        await msg.edit(content=f"❌ **Error 403**: Cloudflare bloqueó Railway\n\n**Solución:** Abre {url} en navegador y verifica")
                         return
                     elif response.status_code!= 200:
                         await msg.edit(content=f"❌ **Error {response.status_code}**: No pude cargar el perfil")
@@ -277,10 +337,10 @@ async def on_message(message):
                     response = scraper.get(url, headers=headers, timeout=25)
 
                     if response.status_code == 404:
-                        await msg.edit(content=f"❌ **Error 404**: Reino {reino} no existe\n\n**Reinos activos:** 127, 128, 129, 300, 301, 305, 306\n\nPrueba: `meta check reino 127`")
+                        await msg.edit(content=f"❌ **Error 404**: Reino {reino} no existe\n\n**Reinos activos:** 127, 128, 129, 300, 301, 305")
                         return
                     elif response.status_code == 403:
-                        await msg.edit(content=f"❌ **Error 403**: Cloudflare bloqueó Railway para reino {reino}\n\nIntenta más tarde o usa otro reino")
+                        await msg.edit(content=f"❌ **Error 403**: Cloudflare bloqueó Railway para reino {reino}\n\nIntenta más tarde o usa `meta codstats {reino}`")
                         return
                     elif response.status_code!= 200:
                         await msg.edit(content=f"❌ **Error {response.status_code}**")
@@ -289,7 +349,7 @@ async def on_message(message):
                     soup = BeautifulSoup(response.text, 'html.parser')
                     tabla = soup.find('table')
                     if not tabla:
-                        await msg.edit(content=f"❌ **Reino {reino} sin datos**\n\nEl reino existe pero no tiene tabla de jugadores.\nPuede ser reino muerto o muy nuevo.\n\n**Prueba:** `meta check reino 127`")
+                        await msg.edit(content=f"❌ **Reino {reino} sin datos**\n\nEl reino existe pero no tiene tabla de jugadores.\nPuede ser nuevo o inactivo.")
                         return
 
                     df = pd.read_html(str(tabla))[0].head(50)
@@ -304,10 +364,10 @@ async def on_message(message):
                     mensajes_para_borrar[message.channel.id].append(msg_final)
 
                 else:
-                    await msg.edit(content="❌ **Uso:** `meta check id 1234567` o `meta check reino 127`\n\nEscribe `meta ayuda` para ver ejemplos")
+                    await msg.edit(content="❌ **Uso:** `meta check id 1234567` o `meta check reino 127`\n\nEscribe `meta ayuda` para ver opciones")
 
             except asyncio.TimeoutError:
-                await msg.edit(content="❌ **Timeout**: Railway tardó +25s\n\n**Causa:** Cloudflare bloqueando o servidor lento\n**Solución:** Intenta de nuevo en 1 min")
+                await msg.edit(content="❌ **Timeout**: Railway tardó +25s\n\n**Causa:** Cloudflare bloqueando o servidor lento\n**Solución:** Intenta de nuevo en 30s")
             except Exception as e:
                 print(f"[ERROR] Meta check: {e}")
                 await msg.edit(content=f"❌ **Error inesperado**\n\n`{str(e)[:150]}`\n\nReporta esto si persiste")
@@ -337,7 +397,7 @@ async def on_message(message):
                     tiempos = {'T1': 30, 'T2': 60, 'T3': 120, 'T4': 240, 'T5': 480}
 
                     if tier not in tiempos:
-                        await message.channel.send("❌ **Tier inválido**\n\nUsa: T1, T2, T3, T4 o T5\nEjemplo: `meta calc tropas 50000 T4`")
+                        await message.channel.send("❌ **Tier inválido**\n\nUsa: T1, T2, T3, T4 o T5\nEjemplo: `meta calc tropas 50000 T5`")
                         return
 
                     total_segundos = cantidad * tiempos[tier]
@@ -345,7 +405,7 @@ async def on_message(message):
                     horas = (total_segundos % 86400) // 3600
                     minutos = (total_segundos % 3600) // 60
 
-                    embed = discord.Embed(title="🧮 Calculadora de Tropas", color=0xF39C12)
+                    embed = discord.Embed(title="⚔️ Calculadora de Tropas", color=0xF39C12)
                     embed.add_field(name="Cantidad", value=f"{cantidad:,} {tier}", inline=True)
                     embed.add_field(name="Tiempo Base", value=f"{dias}d {horas}h {minutos}m", inline=True)
                     embed.add_field(name="Con Buff 20%", value=f"{int(total_segundos*0.8//86400)}d {int((total_segundos*0.8%86400)//3600)}h", inline=True)
@@ -358,7 +418,7 @@ async def on_message(message):
 
             elif tipo == "speedup":
                 if len(args) < 2:
-                    await message.channel.send("❌ **Uso:** `meta calc speedup 7d 12h 30m`\n\n**Formato:** 1d 5h 30m")
+                    await message.channel.send("❌ **Uso:** `meta calc speedup 7d 12h 30m`\n\n**Formato:** `1d 5h 30m`")
                     return
 
                 tiempo_str = " ".join(args[1:])
@@ -439,10 +499,10 @@ async def on_message(message):
             return
 
         # ===== COMANDOS DESHABILITADOS TEMPORALMENTE =====
-        if peticion.lower().startswith("talentos ") or peticion.lower().startswith("mascota ") or peticion.lower().startswith("mascota"):
+        if peticion.lower().startswith("talentos ") or peticion.lower().startswith("mascota ") or peticion.lower().startswith("mascotas"):
             heroe = peticion.split(" ", 1)[1] if " " in peticion else "general"
             embed = discord.Embed(title="⚠️ Comando Deshabilitado", color=0xF39C12)
-            embed.add_field(name="Motivo", value="Migrando de Serper a API directa", inline=False)
+            embed.add_field(name="Motivo", value="Migrando a API directa", inline=False)
             embed.add_field(name="Mientras tanto usa:", value=f"🔗 callofdragonsguides.com\n🔗 coddb.app/pets", inline=False)
             embed.set_footer(text="Vuelve a estar activo en 2-3 días")
             msg = await message.channel.send(embed=embed)
