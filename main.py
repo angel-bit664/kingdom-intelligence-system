@@ -7,8 +7,8 @@ import re
 
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
-ID_CANAL_ANUNCIOS = 1358237524249542751 # Para meta alerta y meta evento
-ID_CANAL_ACTIVATE = 1358237524799131662 # Para meta activate
+ID_CANAL_ANUNCIOS = 1358237524249542751 # Solo para meta alerta y meta evento
+ID_CANAL_ACTIVATE = 1358237524799131662 # Solo para meta activate
 # ==================
 
 intents = discord.Intents.default()
@@ -81,7 +81,7 @@ async def on_message(message):
         embed = discord.Embed(description=descripcion, color=0xFF0000)
         embed.set_footer(text=f"Alerta enviada por: {autor_nombre}")
 
-        # CANAL DIFERENTE PARA ACTIVATE
+        # VALIDACIÓN: Solo manda a ID_CANAL_ACTIVATE, nunca a ID_CANAL_ANUNCIOS
         canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
         if not canal_activate:
             msg = await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
@@ -123,7 +123,7 @@ async def on_message(message):
         embed = discord.Embed(description=descripcion, color=0xFF0000)
         embed.set_footer(text=f"Alerta enviada por: {autor_nombre}")
 
-        # CANAL DIFERENTE PARA ACTIVATE
+        # VALIDACIÓN: Solo manda a ID_CANAL_ACTIVATE, nunca a ID_CANAL_ANUNCIOS
         canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
         if not canal_activate:
             msg = await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
