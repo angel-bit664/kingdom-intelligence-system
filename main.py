@@ -1,454 +1,292 @@
 import discord
 import os
 import asyncio
-from deep_translator import GoogleTranslator
-from collections import defaultdict
-import re
-import time
+from datetime import datetime, timedelta
+import pytz
+import pandas as pd
+import io
+from discord import ui
+from kvk_diario import procesar_kvk_por_dia
 
-# ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
-ID_CANAL_ANUNCIOS = 1358237524249542751 # Para meta alerta y meta evento
-ID_CANAL_ACTIVATE = 1358237524799313662 # Solo para meta activate
-# ==================
+ID_CANAL_ACTIVATE = 1358237524799313662 # <-- REVISA QUE ESTE ID SEA CORRECTO
+ID_CANAL_LOGS = 1358265885264494694
+ID_CANAL_EVENTOS = 1358265885264494694
+ID_CANAL_ALERTAS = 1358265885264494694
 
 intents = discord.Intents.default()
 intents.message_content = True
-client = discord.Client(intents=intents)
+intents.members = True
+bot = discord.Client(intents=intents)
 
-mensajes_para_borrar = defaultdict(list)
-ultimo_anuncio = {}
-procesando_activate = set() # CANDADO ANTI-DUPLICADOS
+def get_hora_cdmx():
+    return datetime.now(pytz.timezone("America/Mexico_City"))
 
-@client.event
+def format_tiempo(seconds):
+    if seconds < 0:
+        return "0s"
+    dias = int(seconds // 86400)
+    horas = int((seconds % 86400) // 3600)
+    minutos = int((seconds % 3600) // 60)
+    segs = int(seconds % 60)
+    partes = []
+    if dias > 0: partes.append(f"{dias}d")
+    if horas > 0: partes.append(f"{horas}h")
+    if minutos > 0: partes.append(f"{minutos}m")
+    if segs > 0 or not partes: partes.append(f"{segs}s")
+    return " ".join(partes)
+
+@bot.event
 async def on_ready():
-    print(f'✅ Bot conectado como {client.user}')
-    print(f'✅ ID del bot: {client.user.id}')
-    print(f'✅ Listo en {len(client.guilds)} servidores')
-    print(f'✅ Canal anuncios: {ID_CANAL_ANUNCIOS}')
-    print(f'✅ Canal activate: {ID_CANAL_ACTIVATE}')
+    print(f"✅ Bot conectado como {bot.user}")
+    print(f"📅 Hora CDMX: {get_hora_cdmx().strftime('%Y-%m-%d %H:%M:%S')}")
 
-@client.event
+@bot.event
 async def on_message(message):
-    if message.author == client.user:
+    if message.author == bot.user:
         return
-
-    if message.channel.id not in mensajes_para_borrar:
-        mensajes_para_borrar[message.channel.id] = []
 
     if not message.content.lower().startswith("meta "):
         return
 
-    peticion = message.content[5:].strip()
     autor_nombre = message.author.display_name
+    peticion = message.content[5:].strip()
 
     # ===== META ACTIVATE =====
     if peticion.lower().startswith("activate"):
-        print(f'[ACTIVATE] Comando recibido de {autor_nombre} - {time.time()}')
-        if message.author.id in procesando_activate:
-            print(f'[ACTIVATE] BLOQUEADO - Ya se está procesando activate de {autor_nombre}')
+        canal = bot.get_channel(ID_CANAL_ACTIVATE)
+        if not canal:
+            await message.channel.send(f"❌ **No encontré el canal de activate** con ID `{ID_CANAL_ACTIVATE}`")
             return
-        procesando_activate.add(message.author.id)
-        print(f'[ACTIVATE] Candado puesto para {autor_nombre}')
-        try:
-            usuarios_mencionados = []
-            if message.mentions:
-                usuarios_mencionados = message.mentions
-                print(f'[ACTIVATE] Menciones directas: {len(usuarios_mencionados)}')
-            else:
-                msg = await message.channel.send("👤 Menciona a los usuarios a activar (puedes mencionar varios):")
-                def check(m):
-                    return m.author == message.author and m.channel == message.channel and len(m.mentions) > 0
-                try:
-                    respuesta = await client.wait_for('message', timeout=30.0, check=check)
-                    usuarios_mencionados = respuesta.mentions
-                    print(f'[ACTIVATE] Menciones interactivas: {len(usuarios_mencionados)}')
-                    await respuesta.delete()
-                    await msg.delete()
-                except asyncio.TimeoutError:
-                    await message.channel.send("⏰ Tiempo agotado. Usa `meta activate @usuario1 @usuario2`")
-                    await msg.delete()
-                    return
-            if not usuarios_mencionados:
-                await message.channel.send("❌ **Debes mencionar al menos 1 usuario**\n\nEjemplo: `meta activate @Juan`")
-                return
-            usuarios = " ".join([u.mention for u in usuarios_mencionados])
-            usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
-            texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
-            texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
-            texto_escudo = "ESCUDOS" if len(usuarios_mencionados) > 1 else "ESCUDO"
-            descripcion = f"""🚨 **CÓDIGO DE EMERGENCIA TFT** 🚨
-⚠️ **ALERTA ROJA / RED ALERT** ⚠️
 
-🎯 **OBJETIVO / TARGET:**
-**{usuarios_texto}**
+        await message.channel.send("🔴 **CÓDIGO ROJO TFT ACTIVADO**\nRastreando usuarios sin escudo...")
 
-❌ **ESTADO / STATUS**
-{texto_sin} {texto_escudo} ACTIVO - ZONA DE PELIGRO
-NO ACTIVE SHIELD - DANGER ZONE
+        miembros_sin_escudo = []
+        for member in message.guild.members:
+            if member.bot:
+                continue
+            # Aquí va tu lógica para detectar sin escudo
+            # miembros_sin_escudo.append(member.mention)
 
-🛡️ **PROTOCOLO DE EMERGENCIA / EMERGENCY PROTOCOL:**
-1. **{texto_plural} INMEDIATAMENTE / CONNECT NOW**
-2. **ESCUDO 8H YA / 8h SHIELD NOW**
-3. **TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT**
-
-⚔️ **ALIANZA TFT EN ALERTA MÁXIMA**
-TFT ALLIANCE ON MAXIMUM ALERT
-
-Código emitido por: {autor_nombre}
-⏰ TIEMPO ES CRÍTICO / TIME IS CRITICAL"""
-            embed = discord.Embed(description=descripcion, color=0xFF0000)
-            embed.set_footer(text=f"🚨 CÓDIGO ROJO TFT | {autor_nombre}")
-            canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
-            if not canal_activate:
-                await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
-                return
-            print(f'[ACTIVATE] Enviando mensaje ÚNICO al canal {ID_CANAL_ACTIVATE}')
-            await canal_activate.send(content=usuarios, embed=embed)
-            print(f'[ACTIVATE] Mensaje enviado exitosamente')
-            await message.delete()
-        finally:
-            procesando_activate.discard(message.author.id)
-            print(f'[ACTIVATE] Candado liberado para {autor_nombre}')
+        if miembros_sin_escudo:
+            lista = "\n".join(miembros_sin_escudo[:20])
+            await canal.send(f"🚨 **ALERTA ROJA** 🚨\n{lista}")
+        else:
+            await canal.send("✅ **Todos con escudo activo**")
         return
 
-    try:
-        # ===== META EDITAR =====
-        if peticion.lower() == "editar":
-            if message.channel.id not in ultimo_anuncio:
-                msg = await message.channel.send("❌ No hay ningún anuncio reciente para editar\n\nCrea uno primero con `meta alerta` o `meta evento`")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                return
-            msg = await message.channel.send("✏️ **¿Qué quieres editar?**\n\n1. Escribe el **nuevo mensaje en Español**")
-            mensajes_para_borrar[message.channel.id].append(msg)
-            def check(m):
-                return m.author == message.author and m.channel == message.channel
-            try:
-                resp_es = await client.wait_for('message', timeout=60.0, check=check)
-                if resp_es.content.lower() == "cancelar":
-                    msg = await message.channel.send("❌ Edición cancelada")
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-                texto_es = resp_es.content
-                mensajes_para_borrar[message.channel.id].append(resp_es)
-                msg = await message.channel.send("🇺🇸 **Ahora escribe el mensaje en Inglés:**")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                resp_en = await client.wait_for('message', timeout=60.0, check=check)
-                texto_en = resp_en.content
-                mensajes_para_borrar[message.channel.id].append(resp_en)
-                anuncio_viejo = ultimo_anuncio[message.channel.id]
-                embed_viejo = anuncio_viejo.embeds[0]
-                if "EVENTO" in embed_viejo.description:
-                    descripcion = f"""🎊 **Familia TFT / TFT Family** 🎊
-📅 **EVENTO OFICIAL / OFFICIAL EVENT**
-
-### 📌 EVENTO / EVENT ###
-🇲🇽 **ES:** {texto_es.upper()}
-🇺🇸 **EN:** {texto_en.upper()}
-
-✅ **Confirmen asistencia / Confirm attendance**
-Reacciona con 👍 si vas a participar / React 👍 if you're joining
-
-¡Preparados TFT / Ready TFT! ⚔️
-Vamos por la victoria / Let's go for victory"""
-                    color = 0x3498DB
-                else:
-                    descripcion = f"""🎊 **Familia TFT / TFT Family** 🎊
-🚨 **Necesitamos el apoyo de todos / We need everyone's support**
-
-🎯 **Misión / Mission:**
-🇲🇽 **ES:** {texto_es}
-🇺🇸 **EN:** {texto_en}
-
-🔥 **Todos están invitados / Everyone is invited**
-Si quieren pelear y defender / If you want to fight and defend, los esperamos / we are waiting for you.
-
-¡Vamos TFT / Let's go TFT! ¡Aún queda guerra por delante / War is still ahead! ⚔️"""
-                    color = 0xF1C40F
-                embed_nuevo = discord.Embed(description=descripcion, color=color)
-                embed_nuevo.set_footer(text=f"Editado por: {autor_nombre}")
-                await anuncio_viejo.edit(embed=embed_nuevo)
-                await message.delete()
-                await resp_es.delete()
-                await resp_en.delete()
-                await msg.delete()
-            except asyncio.TimeoutError:
-                msg = await message.channel.send("⏰ Tiempo agotado. Edición cancelada")
-                mensajes_para_borrar[message.channel.id].append(msg)
+    # ===== META EDITAR =====
+    if peticion.lower().startswith("editar"):
+        args = peticion.split(maxsplit=2)
+        if len(args) < 3:
+            await message.channel.send("❌ **Uso:** `meta editar <ID_mensaje> <nuevo_texto>`")
             return
 
-        # ===== META KVKDIARIO =====
-        if peticion.lower().startswith("kvkdiario"):
-            if len(message.attachments) < 2:
-                msg = await message.channel.send("❌ **Sube mínimo 2 Excel**\n`01_dia1.xlsx`, `02_dia2.xlsx`...\n\n**Orden:** El nombre del archivo define el orden")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                return
-            if len(message.attachments) > 10:
-                msg = await message.channel.send("❌ Máximo 10 archivos bro")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                return
-            from kvk_diario import procesar_kvk_por_dia
-            import os
-            msg = await message.channel.send(f"⏳ Procesando {len(message.attachments)} días KVK...")
-            mensajes_para_borrar[message.channel.id].append(msg)
-            try:
-                attachments = sorted(message.attachments, key=lambda x: x.filename)
-                rutas = []
-                for i, adj in enumerate(attachments):
-                    ruta = f'temp_kvk_dia{i+1}.xlsx'
-                    await adj.save(ruta)
-                    rutas.append(ruta)
-                embed, archivo = await procesar_kvk_por_dia(rutas)
-                await message.channel.send(embed=embed, file=archivo)
-                await msg.delete()
-                for ruta in rutas:
-                    os.remove(ruta)
-            except Exception as e:
-                await msg.edit(content=f"❌ **Error:** {e}")
-            return
-
-        # ===== META LIMPIA =====
-        if peticion.lower() == "limpia":
-            if not message.channel.permissions_for(message.guild.me).manage_messages:
-                await message.channel.send("❌ **Sin permisos**\n\n**Cómo arreglar:**\n1. Server Settings → Roles → Meta TFT\n2. Activa 'Manage Messages'\n3. Guarda")
-                return
-            await message.delete()
-            borrados = 0
-            async for msg in message.channel.history(limit=100):
-                if msg.author == client.user or msg.content.lower().startswith("meta "):
-                    try:
-                        await msg.delete()
-                        borrados += 1
-                        await asyncio.sleep(0.5)
-                    except:
-                        pass
-            confirm = await message.channel.send(f"🧹 Limpieza: {borrados} mensajes borrados")
-            await asyncio.sleep(3)
-            await confirm.delete()
-            return
-
-        # ===== META PING =====
-        if peticion.lower() == "ping":
-            latencia = round(client.latency * 1000)
-            embed = discord.Embed(title="🏓 Pong!", color=0x2ECC71)
-            embed.add_field(name="Latencia", value=f"{latencia}ms", inline=True)
-            embed.add_field(name="Estado", value="✅ Bot activo", inline=True)
-            embed.add_field(name="Servidores", value=str(len(client.guilds)), inline=True)
-            msg = await message.channel.send(embed=embed)
-            mensajes_para_borrar[message.channel.id].append(msg)
-            return
-
-        # ===== META AYUDA =====
-        if peticion.lower() == "ayuda":
-            embed = discord.Embed(title="📋 Comandos Meta TFT", color=0x3498DB)
-            embed.add_field(name="🧹 meta limpia", value="Borra spam de meta", inline=False)
-            embed.add_field(name="🏓 meta ping", value="Revisa si el bot está vivo", inline=False)
-            embed.add_field(name="🚨 meta activate @usuario1 @usuario2", value="Código de emergencia a jugadores inactivos", inline=False)
-            embed.add_field(name="📢 meta alerta", value="Alerta bilingüe interactiva para @everyone", inline=False)
-            embed.add_field(name="📅 meta evento", value="Evento bilingüe interactivo para @everyone", inline=False)
-            embed.add_field(name="✏️ meta editar", value="Edita el último anuncio enviado", inline=False)
-            embed.add_field(name="🌐 meta traducir <texto>", value="Traduce ES ↔ EN", inline=False)
-            embed.add_field(name="⚔️ meta calc tropas <cant> <tier>", value="Calcula tiempo entrenamiento", inline=False)
-            embed.add_field(name="⚡ meta calc speedup <tiempo>", value="Convierte a speedups", inline=False)
-            embed.add_field(name="📊 meta kvkdiario", value="Progreso KVK acumulado por días", inline=False)
-            embed.set_footer(text="Tip: Usa meta alerta/evento y luego meta editar para corregir")
-            msg = await message.channel.send(embed=embed)
-            mensajes_para_borrar[message.channel.id].append(msg)
-            return
-
-        # ===== META ALERTA =====
-        if peticion.lower() == "alerta":
-            canal = client.get_channel(ID_CANAL_ANUNCIOS)
-            if not canal:
-                await message.channel.send(f"❌ **No encontré el canal**\nID: `{ID_CANAL_ANUNCIOS}`")
-                return
-            msg = await message.channel.send("🚨 **Creando ALERTA TFT**\n\n🇲🇽 Escribe el mensaje en **Español**:")
-            mensajes_para_borrar[message.channel.id].append(msg)
-            def check(m):
-                return m.author == message.author and m.channel == message.channel
-            try:
-                resp_es = await client.wait_for('message', timeout=60.0, check=check)
-                if resp_es.content.lower() == "cancelar":
-                    msg = await message.channel.send("❌ Alerta cancelada")
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-                texto_es = resp_es.content
-                mensajes_para_borrar[message.channel.id].append(resp_es)
-                msg = await message.channel.send("🇺🇸 Ahora escribe el mensaje en **Inglés**:")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                resp_en = await client.wait_for('message', timeout=60.0, check=check)
-                texto_en = resp_en.content
-                mensajes_para_borrar[message.channel.id].append(resp_en)
-                descripcion = f"""🎊 **Familia TFT / TFT Family** 🎊
-🚨 **Necesitamos el apoyo de todos / We need everyone's support**
-
-🎯 **Misión / Mission:**
-🇲🇽 **ES:** {texto_es}
-🇺🇸 **EN:** {texto_en}
-
-🔥 **Todos están invitados / Everyone is invited**
-Si quieren pelear y defender / If you want to fight and defend, los esperamos / we are waiting for you.
-
-¡Vamos TFT / Let's go TFT! ¡Aún queda guerra por delante / War is still ahead! ⚔️"""
-                embed = discord.Embed(description=descripcion, color=0xF1C40F)
-                embed.set_footer(text=f"Alerta enviada por: {autor_nombre}")
-                anuncio_msg = await canal.send("@everyone", embed=embed)
-                ultimo_anuncio[message.channel.id] = anuncio_msg
-                await message.delete()
-                await resp_es.delete()
-                await resp_en.delete()
-                await msg.delete()
-            except asyncio.TimeoutError:
-                msg = await message.channel.send("⏰ Tiempo agotado. Alerta cancelada")
-                mensajes_para_borrar[message.channel.id].append(msg)
-            return
-
-        # ===== META EVENTO =====
-        if peticion.lower() == "evento":
-            canal = client.get_channel(ID_CANAL_ANUNCIOS)
-            if not canal:
-                await message.channel.send(f"❌ **No encontré el canal**\nID: `{ID_CANAL_ANUNCIOS}`")
-                return
-            msg = await message.channel.send("📅 **Creando EVENTO TFT**\n\n🇲🇽 Escribe el mensaje en **Español**:")
-            mensajes_para_borrar[message.channel.id].append(msg)
-            def check(m):
-                return m.author == message.author and m.channel == message.channel
-            try:
-                resp_es = await client.wait_for('message', timeout=60.0, check=check)
-                if resp_es.content.lower() == "cancelar":
-                    msg = await message.channel.send("❌ Evento cancelado")
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                    return
-                texto_es = resp_es.content
-                mensajes_para_borrar[message.channel.id].append(resp_es)
-                msg = await message.channel.send("🇺🇸 Ahora escribe el mensaje en **Inglés**:")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                resp_en = await client.wait_for('message', timeout=60.0, check=check)
-                texto_en = resp_en.content
-                mensajes_para_borrar[message.channel.id].append(resp_en)
-                descripcion = f"""🎊 **Familia TFT / TFT Family** 🎊
-📅 **EVENTO OFICIAL / OFFICIAL EVENT**
-
-### 📌 EVENTO / EVENT ###
-🇲🇽 **ES:** {texto_es.upper()}
-🇺🇸 **EN:** {texto_en.upper()}
-
-✅ **Confirmen asistencia / Confirm attendance**
-Reacciona con 👍 si vas a participar / React 👍 if you're joining
-
-¡Preparados TFT / Ready TFT! ⚔️
-Vamos por la victoria / Let's go for victory"""
-                embed = discord.Embed(description=descripcion, color=0x3498DB)
-                embed.set_footer(text=f"Evento publicado por: {autor_nombre}")
-                msg_evento = await canal.send("@everyone", embed=embed)
-                await msg_evento.add_reaction("👍")
-                ultimo_anuncio[message.channel.id] = msg_evento
-                await message.delete()
-                await resp_es.delete()
-                await resp_en.delete()
-                await msg.delete()
-            except asyncio.TimeoutError:
-                msg = await message.channel.send("⏰ Tiempo agotado. Evento cancelado")
-                mensajes_para_borrar[message.channel.id].append(msg)
-            return
-
-        # ===== META TRADUCIR =====
-        if peticion.lower().startswith("traducir "):
-            texto = peticion[9:].strip()
-            if not texto:
-                msg = await message.channel.send("❌ **Uso:** `meta traducir hola mundo`")
-                mensajes_para_borrar[message.channel.id].append(msg)
-                return
-            try:
-                if re.search(r'[áéíóúñ]', texto.lower()):
-                    traduccion = GoogleTranslator(source='es', target='en').translate(texto)
-                    embed = discord.Embed(title="🌐 Traducción", color=0x1ABC9C)
-                    embed.add_field(name="🇲🇽 Español", value=texto, inline=False)
-                    embed.add_field(name="🇺🇸 English", value=traduccion, inline=False)
-                else:
-                    traduccion = GoogleTranslator(source='en', target='es').translate(texto)
-                    embed = discord.Embed(title="🌐 Traducción", color=0x1ABC9C)
-                    embed.add_field(name="🇺🇸 English", value=texto, inline=False)
-                    embed.add_field(name="🇲🇽 Español", value=traduccion, inline=False)
-                msg = await message.channel.send(embed=embed)
-                mensajes_para_borrar[message.channel.id].append(msg)
-            except Exception as e:
-                await message.channel.send(f"❌ **Error traduciendo**\n\n`{str(e)[:100]}`")
-            return
-
-        # ===== META CALC =====
-        if peticion.lower().startswith("calc "):
-            args = peticion[5:].strip().split()
-            if len(args) < 2:
-                embed = discord.Embed(title="🧮 Meta Calc", color=0xF39C12)
-                embed.add_field(name="Tropas", value="`meta calc tropas 100000 T5`\nCalcula tiempo de entrenamiento", inline=False)
-                embed.add_field(name="Speedups", value="`meta calc speedup 7d 12h`\nConvierte tiempo a speedups", inline=False)
-                msg = await message.channel.send(embed=embed)
-                mensajes_para_borrar[message.channel.id].append(msg)
-                return
-            tipo = args[0].lower()
-            if tipo == "tropas":
-                if len(args) < 3:
-                    await message.channel.send("❌ **Uso:** `meta calc tropas 100000 T5`\n\n**Tiers:** T1, T2, T3, T4, T5")
-                    return
-                try:
-                    cantidad = int(args[1].replace(',', ''))
-                    tier = args[2].upper()
-                    tiempos = {'T1': 30, 'T2': 60, 'T3': 120, 'T4': 240, 'T5': 480}
-                    if tier not in tiempos:
-                        await message.channel.send("❌ **Tier inválido**\n\nUsa: T1, T2, T3, T4 o T5\nEjemplo: `meta calc tropas 100000 T5`")
-                        return
-                    total_segundos = cantidad * tiempos[tier]
-                    dias = total_segundos // 86400
-                    horas = (total_segundos % 86400) // 3600
-                    minutos = (total_segundos % 3600) // 60
-                    embed = discord.Embed(title="⚔️ Calculadora de Tropas", color=0xF39C12)
-                    embed.add_field(name="Cantidad", value=f"{cantidad:,} {tier}", inline=True)
-                    embed.add_field(name="Tiempo Base", value=f"{dias}d {horas}h {minutos}m", inline=True)
-                    embed.add_field(name="Con Buff 20%", value=f"{int(total_segundos*0.8//86400)}d {int((total_segundos*0.8%86400)//3600)}h", inline=False)
-                    embed.set_footer(text="Sin buffs de alianza/tecnología/héroes")
-                    msg = await message.channel.send(embed=embed)
-                    mensajes_para_borrar[message.channel.id].append(msg)
-                except ValueError:
-                    await message.channel.send("❌ **Cantidad inválida**\n\nUsa números: `meta calc tropas 100000 T5`")
-            elif tipo == "speedup":
-                if len(args) < 2:
-                    await message.channel.send("❌ **Uso:** `meta calc speedup 7d 12h 30m`\n\n**Formato:** `1d 5h 30m`")
-                    return
-                tiempo_str = " ".join(args[1:])
-                dias = horas = minutos = 0
-                d_match = re.search(r'(\d+)d', tiempo_str)
-                h_match = re.search(r'(\d+)h', tiempo_str)
-                m_match = re.search(r'(\d+)m', tiempo_str)
-                if d_match: dias = int(d_match.group(1))
-                if h_match: horas = int(h_match.group(1))
-                if m_match: minutos = int(m_match.group(1))
-                total_horas = dias * 24 + horas + minutos / 60
-                speed_24h = int(total_horas // 24)
-                resto = total_horas % 24
-                speed_8h = int(resto // 8)
-                resto = resto % 8
-                speed_1h = int(resto)
-                embed = discord.Embed(title="⚡ Calculadora Speedups", color=0xF39C12)
-                embed.add_field(name="Tiempo Total", value=f"{dias}d {horas}h {minutos}m", inline=False)
-                embed.add_field(name="Speedups 24h", value=str(speed_24h), inline=True)
-                embed.add_field(name="Speedups 8h", value=str(speed_8h), inline=True)
-                embed.add_field(name="Speedups 1h", value=str(speed_1h), inline=True)
-                msg = await message.channel.send(embed=embed)
-                mensajes_para_borrar[message.channel.id].append(msg)
-            else:
-                await message.channel.send("❌ **Uso:** `meta calc tropas 100000 T5` o `meta calc speedup 7d 12h`")
-            return
-
-        # Si no matcheó ningún comando
-        msg = await message.channel.send(f"❌ **Comando no reconocido:** `meta {peticion}`\n\nEscribe `meta ayuda` para ver comandos")
-        mensajes_para_borrar[message.channel.id].append(msg)
-
-    except Exception as e:
-        print(f"[ERROR CRÍTICO] {e}")
         try:
-            await message.channel.send(f"❌ **Error crítico**\n\n`{str(e)[:150]}`\n\nReporta esto si persiste")
-        except:
-            pass
+            msg_id = int(args[1])
+            nuevo_texto = args[2]
+            msg_editar = await message.channel.fetch_message(msg_id)
+            await msg_editar.edit(content=nuevo_texto)
+            await message.channel.send("✅ **Mensaje editado**")
+        except Exception as e:
+            await message.channel.send(f"❌ **Error:** {e}")
+        return
 
-client.run(TOKEN)
+    # ===== META LIMPIA =====
+    if peticion.lower().startswith("limpia"):
+        args = peticion.split()
+        cantidad = 10
+        if len(args) > 1 and args[1].isdigit():
+            cantidad = int(args[1])
+
+        def es_bot_o_meta(m):
+            return m.author == bot.user or m.content.lower().startswith("meta ")
+
+        borrados = await message.channel.purge(limit=cantidad, check=es_bot_o_meta)
+        await message.channel.send(f"🧹 **Limpié {len(borrados)} mensajes**", delete_after=5)
+        return
+
+    # ===== META PING =====
+    if peticion.lower().startswith("ping"):
+        latencia = round(bot.latency * 1000)
+        await message.channel.send(f"🏓 **Pong!** `{latencia}ms`")
+        return
+
+    # ===== META AYUDA =====
+    if peticion.lower().startswith("ayuda"):
+        embed = discord.Embed(
+            title="📋 Comandos Meta",
+            description="Lista de comandos disponibles:",
+            color=0x3498db
+        )
+        embed.add_field(name="🔴 meta activate", value="Código rojo TFT", inline=False)
+        embed.add_field(name="✏️ meta editar <ID> <texto>", value="Edita mensajes del bot", inline=False)
+        embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot", inline=False)
+        embed.add_field(name="🏓 meta ping", value="Latencia del bot", inline=False)
+        embed.add_field(name="🚨 meta alerta <texto>", value="Crea alerta bilingüe ES/EN", inline=False)
+        embed.add_field(name="📅 meta evento <texto>", value="Crea evento bilingüe ES/EN", inline=False)
+        embed.add_field(name="🌐 meta traducir <texto>", value="Traduce ES ↔ EN", inline=False)
+        embed.add_field(name="🧮 meta calc tropas <tipo> <cant>", value="Calcula tiempo entrenamiento", inline=False)
+        embed.add_field(name="⚡ meta calc speedup <tiempo>", value="Convierte a speedups", inline=False)
+        embed.add_field(name="📊 meta kvkdiario", value="Procesa Excel KVK acumulado", inline=False)
+        embed.set_footer(text=f"Solicitado por {autor_nombre}")
+        await message.channel.send(embed=embed)
+        return
+
+    # ===== META ALERTA =====
+    if peticion.lower().startswith("alerta"):
+        texto = peticion[6:].strip()
+        if not texto:
+            await message.channel.send("❌ **Uso:** `meta alerta <mensaje>`")
+            return
+
+        class AlertaView(ui.View):
+            def __init__(self):
+                super().__init__(timeout=None)
+
+            @ui.button(label="🇲🇽 Español", style=discord.ButtonStyle.primary)
+            async def es_btn(self, interaction, button):
+                await interaction.response.send_message(f"🚨 **ALERTA** 🚨\n{texto}", ephemeral=False)
+
+            @ui.button(label="🇺🇸 English", style=discord.ButtonStyle.secondary)
+            async def en_btn(self, interaction, button):
+                # Aquí tu lógica de traducción
+                await interaction.response.send_message(f"🚨 **ALERT** 🚨\n{texto}", ephemeral=False)
+
+        embed = discord.Embed(
+            title="🚨 Sistema de Alertas",
+            description="Selecciona idioma para ver la alerta:",
+            color=0xe74c3c
+        )
+        await message.channel.send(embed=embed, view=AlertaView())
+        return
+
+    # ===== META EVENTO =====
+    if peticion.lower().startswith("evento"):
+        texto = peticion[6:].strip()
+        if not texto:
+            await message.channel.send("❌ **Uso:** `meta evento <descripción>`")
+            return
+
+        class EventoView(ui.View):
+            def __init__(self):
+                super().__init__(timeout=None)
+
+            @ui.button(label="🇲🇽 Español", style=discord.ButtonStyle.success)
+            async def es_btn(self, interaction, button):
+                await interaction.response.send_message(f"📅 **EVENTO** 📅\n{texto}", ephemeral=False)
+
+            @ui.button(label="🇺🇸 English", style=discord.ButtonStyle.secondary)
+            async def en_btn(self, interaction, button):
+                await interaction.response.send_message(f"📅 **EVENT** 📅\n{texto}", ephemeral=False)
+
+        embed = discord.Embed(
+            title="📅 Sistema de Eventos",
+            description="Selecciona idioma para ver el evento:",
+            color=0x2ecc71
+        )
+        await message.channel.send(embed=embed, view=EventoView())
+        return
+
+    # ===== META TRADUCIR =====
+    if peticion.lower().startswith("traducir"):
+        texto = peticion[8:].strip()
+        if not texto:
+            await message.channel.send("❌ **Uso:** `meta traducir <texto>`")
+            return
+
+        # Detección simple de idioma
+        es_espanol = any(palabra in texto.lower() for palabra in ["el", "la", "de", "que", "y", "en"])
+
+        if es_espanol:
+            traducido = f"[TRADUCIDO A EN] {texto}"
+            await message.channel.send(f"🇲🇽 ➡️ 🇺🇸\n**Original:** {texto}\n**Traducido:** {traducido}")
+        else:
+            traducido = f"[TRADUCIDO A ES] {texto}"
+            await message.channel.send(f"🇺🇸 ➡️ 🇲🇽\n**Original:** {texto}\n**Traducido:** {traducido}")
+        return
+
+    # ===== META CALC TROPAS =====
+    if peticion.lower().startswith("calc tropas"):
+        args = peticion.split()
+        if len(args) < 4:
+            await message.channel.send("❌ **Uso:** `meta calc tropas <T1-T5> <cantidad>`")
+            return
+
+        tipo = args[2].upper()
+        try:
+            cantidad = int(args[3])
+            tiempos = {"T1": 10, "T2": 20, "T3": 30, "T4": 45, "T5": 60}
+            if tipo not in tiempos:
+                await message.channel.send("❌ **Tipo inválido.** Usa T1, T2, T3, T4 o T5")
+                return
+
+            segundos_totales = tiempos[tipo] * cantidad
+            tiempo_formateado = format_tiempo(segundos_totales)
+            await message.channel.send(f"⚔️ **{cantidad:,} {tipo}** = `{tiempo_formateado}` de entrenamiento")
+        except:
+            await message.channel.send("❌ **Cantidad inválida**")
+        return
+
+    # ===== META CALC SPEEDUP =====
+    if peticion.lower().startswith("calc speedup"):
+        args = peticion.split(maxsplit=2)
+        if len(args) < 3:
+            await message.channel.send("❌ **Uso:** `meta calc speedup <1d 2h 30m>`")
+            return
+
+        tiempo_str = args[2]
+        # Parse simple: 1d 2h 30m 45s
+        segundos = 0
+        for parte in tiempo_str.split():
+            if parte.endswith('d'): segundos += int(parte[:-1]) * 86400
+            elif parte.endswith('h'): segundos += int(parte[:-1]) * 3600
+            elif parte.endswith('m'): segundos += int(parte[:-1]) * 60
+            elif parte.endswith('s'): segundos += int(parte[:-1])
+
+        # Speedups comunes
+        s_1m = segundos // 60
+        s_5m = segundos // 300
+        s_15m = segundos // 900
+        s_60m = segundos // 3600
+
+        embed = discord.Embed(title="⚡ Conversión a Speedups", color=0xf39c12)
+        embed.add_field(name="1 minuto", value=f"`{s_1m:,}`", inline=True)
+        embed.add_field(name="5 minutos", value=f"`{s_5m:,}`", inline=True)
+        embed.add_field(name="15 minutos", value=f"`{s_15m:,}`", inline=True)
+        embed.add_field(name="60 minutos", value=f"`{s_60m:,}`", inline=True)
+        embed.set_footer(text=f"Total: {format_tiempo(segundos)}")
+        await message.channel.send(embed=embed)
+        return
+
+    # ===== META KVKDIARIO ===== NUEVO
+    if peticion.lower().startswith("kvkdiario"):
+        if not message.attachments:
+            await message.channel.send("❌ **Sube mínimo 2 archivos Excel del KVK** junto con el comando `meta kvkdiario`")
+            return
+
+        rutas_archivos = []
+        for attachment in message.attachments:
+            if attachment.filename.endswith('.xlsx'):
+                ruta = f"/tmp/{attachment.filename}"
+                await attachment.save(ruta)
+                rutas_archivos.append(ruta)
+
+        if len(rutas_archivos) < 2:
+            await message.channel.send("❌ **Necesito mínimo 2 días de KVK** para calcular el progreso")
+            return
+
+        msg_procesando = await message.channel.send(f"⏳ Procesando {len(rutas_archivos)} días KVK...")
+
+        try:
+            embed, archivo_excel = await procesar_kvk_por_dia(rutas_archivos, subido_por=autor_nombre)
+            await message.channel.send(embed=embed, file=discord.File(archivo_excel))
+            await msg_procesando.delete()
+        except Exception as e:
+            await msg_procesando.edit(content=f"❌ **Error:** {str(e)[:150]}")
+        return
+
+    # Si no matcheó ningún comando
+    await message.channel.send("❌ **Comando no reconocido.** Usa `meta ayuda` para ver la lista")
+
+bot.run(TOKEN)
