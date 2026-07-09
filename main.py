@@ -114,17 +114,15 @@ Código emitido por: {autor_nombre}
                 return
 
             print(f'[ACTIVATE] Enviando mensaje ÚNICO al canal {ID_CANAL_ACTIVATE}')
-            # ÚNICO SEND - SOLO 1 VEZ
             await canal_activate.send(content=usuarios, embed=embed)
             print(f'[ACTIVATE] Mensaje enviado exitosamente')
             await message.delete()
 
         finally:
-            # QUITA EL CANDADO SIEMPRE, aunque haya error
             procesando_activate.discard(message.author.id)
             print(f'[ACTIVATE] Candado liberado para {autor_nombre}')
 
-        return # CORTA AQUÍ - NO EJECUTA NADA MÁS
+        return
 
     # ===== META ALERTA =====
     if peticion.lower().startswith("alerta"):
@@ -194,12 +192,24 @@ Código emitido por: {autor_nombre}
         await message.channel.send("❌ **No encontré anuncio para editar**")
         return
 
-    # ===== META LIMPIA =====
+    # ===== META LIMPIA - AHORA CON CANTIDAD =====
     if peticion.lower().startswith("limpia"):
+        args = peticion.split()
+        cantidad = 50 # default
+
+        if len(args) > 1 and args[1].isdigit():
+            cantidad = int(args[1])
+            if cantidad > 100:
+                await message.channel.send("❌ **Máximo 100 mensajes** por seguridad de Discord")
+                return
+            if cantidad < 1:
+                await message.channel.send("❌ **Mínimo 1 mensaje**")
+                return
+
         def es_bot_o_meta(m):
             return m.author == client.user or m.content.lower().startswith("meta ")
 
-        borrados = await message.channel.purge(limit=50, check=es_bot_o_meta)
+        borrados = await message.channel.purge(limit=cantidad, check=es_bot_o_meta)
         await message.channel.send(f"🧹 **Limpié {len(borrados)} mensajes** del bot y comandos", delete_after=5)
         return
 
@@ -216,7 +226,7 @@ Código emitido por: {autor_nombre}
         embed.add_field(name="📢 meta alerta <texto>", value="Alerta general bilingüe para @everyone", inline=False)
         embed.add_field(name="⚔️ meta evento <texto>", value="Evento oficial con reacción 👍", inline=False)
         embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio enviado", inline=False)
-        embed.add_field(name="🧹 meta limpia", value="Borra spam del bot y comandos", inline=False)
+        embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot. Ej: `meta limpia 20`", inline=False)
         embed.add_field(name="🟢 meta ping", value="Verifica si el bot está activo", inline=False)
         embed.add_field(name="🌐 meta traducir <texto>", value="Traducción automática ES ↔ EN", inline=False)
         embed.add_field(name="⚔️ meta calc tropas <cant> <tier>", value="Calcula tiempo de entrenamiento", inline=False)
@@ -307,7 +317,7 @@ Código emitido por: {autor_nombre}
         await message.channel.send(embed=embed)
         return
 
-    # ===== META KVKDIARIO - NUEVO =====
+    # ===== META KVKDIARIO - CORREGIDO =====
     if peticion.lower().startswith("kvkdiario"):
         if not message.attachments:
             await message.channel.send("❌ **Sube mínimo 2 archivos Excel del KVK** junto con `meta kvkdiario`")
@@ -327,7 +337,7 @@ Código emitido por: {autor_nombre}
         msg_procesando = await message.channel.send(f"⏳ Procesando {len(rutas_archivos)} días KVK...")
 
         try:
-            embed, archivo_excel = await procesar_kvk_por_dia(rutas_archivos, subido_por=autor_nombre)
+            embed, archivo_excel = await procesar_kvk_por_dia(rutas_archivos)
             await message.channel.send(embed=embed, file=discord.File(archivo_excel))
             await msg_procesando.delete()
         except Exception as e:
