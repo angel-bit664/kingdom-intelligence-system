@@ -15,7 +15,7 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 mensajes_para_borrar = defaultdict(list)
-ultimo_anuncio = {} # Guarda el último mensaje enviado por canal
+ultimo_anuncio = {}
 
 @client.event
 async def on_ready():
@@ -77,7 +77,8 @@ async def on_message(message):
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        anuncio_msg = await canal_anuncios.send(content=f"{usuario} @everyone", embed=embed)
+        # CORREGIDO: Solo taggea al usuario, NO @everyone
+        anuncio_msg = await canal_anuncios.send(content=f"{usuario}", embed=embed)
         ultimo_anuncio[message.channel.id] = anuncio_msg
         msg = await message.channel.send(f"✅ Aviso enviado a {canal_anuncios.mention}\n💡 Usa `meta editar` para cambiarlo")
         mensajes_para_borrar[message.channel.id].append(msg)
@@ -109,14 +110,15 @@ async def on_message(message):
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        anuncio_msg = await canal_anuncios.send(content=f"{usuario} @everyone", embed=embed)
+        # CORREGIDO: Solo taggea al usuario, NO @everyone
+        anuncio_msg = await canal_anuncios.send(content=f"{usuario}", embed=embed)
         ultimo_anuncio[message.channel.id] = anuncio_msg
         msg = await message.channel.send(f"✅ Aviso enviado a {canal_anuncios.mention}\n💡 Usa `meta editar` para cambiarlo")
         mensajes_para_borrar[message.channel.id].append(msg)
         return
 
     try:
-        # ===== META EDITAR - EDITA EL ÚLTIMO ANUNCIO =====
+        # ===== META EDITAR =====
         if peticion.lower() == "editar":
             if message.channel.id not in ultimo_anuncio:
                 msg = await message.channel.send("❌ No hay ningún anuncio reciente para editar\n\nCrea uno primero con `meta alerta` o `meta evento`")
@@ -144,7 +146,6 @@ async def on_message(message):
                 texto_en = resp_en.content
                 mensajes_para_borrar[message.channel.id].append(resp_en)
 
-                # Reconstruir embed editado
                 anuncio_viejo = ultimo_anuncio[message.channel.id]
                 embed_viejo = anuncio_viejo.embeds[0]
 
@@ -228,8 +229,8 @@ Si quieren pelear y defender / If you want to fight and defend, los esperamos / 
             embed.add_field(name="🧹 meta limpia", value="Borra spam de meta", inline=False)
             embed.add_field(name="🏓 meta ping", value="Revisa si el bot está vivo", inline=False)
             embed.add_field(name="🚨 meta activate @usuario", value="Aviso urgente a jugador inactivo", inline=False)
-            embed.add_field(name="📢 meta alerta", value="Alerta bilingüe interactiva", inline=False)
-            embed.add_field(name="📅 meta evento", value="Evento bilingüe interactivo", inline=False)
+            embed.add_field(name="📢 meta alerta", value="Alerta bilingüe interactiva para @everyone", inline=False)
+            embed.add_field(name="📅 meta evento", value="Evento bilingüe interactivo para @everyone", inline=False)
             embed.add_field(name="✏️ meta editar", value="Edita el último anuncio enviado", inline=False)
             embed.add_field(name="🌐 meta traducir <texto>", value="Traduce ES ↔ EN", inline=False)
             embed.add_field(name="⚔️ meta calc tropas <cant> <tier>", value="Calcula tiempo entrenamiento", inline=False)
@@ -283,6 +284,7 @@ Si quieren pelear y defender / If you want to fight and defend, los esperamos / 
                 embed = discord.Embed(description=descripcion, color=0xF1C40F)
                 embed.set_footer(text=f"Alerta enviada por: {autor_nombre}")
 
+                # CORRECTO: Alerta SÍ lleva @everyone
                 anuncio_msg = await canal.send("@everyone", embed=embed)
                 ultimo_anuncio[message.channel.id] = anuncio_msg
                 msg = await message.channel.send(f"✅ Alerta enviada a {canal.mention}\n💡 Usa `meta editar` para cambiarla")
@@ -337,6 +339,7 @@ Vamos por la victoria / Let's go for victory"""
                 embed = discord.Embed(description=descripcion, color=0x3498DB)
                 embed.set_footer(text=f"Evento publicado por: {autor_nombre}")
 
+                # CORRECTO: Evento SÍ lleva @everyone + reacción 👍
                 msg_evento = await canal.send("@everyone", embed=embed)
                 await msg_evento.add_reaction("👍")
                 ultimo_anuncio[message.channel.id] = msg_evento
