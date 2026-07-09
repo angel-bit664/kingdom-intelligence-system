@@ -81,7 +81,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
             kick_text += f"• `{row['Nombre de personaje'][:15]}` {row['Poder actual']/1e6:.0f}M | **{row['porcentaje_meta']:.0f}%**\n"
         embed.add_field(name="🚨 TOP 5 CANDIDATOS KICK +50M", value=kick_text, inline=False)
     
-    embed.set_footer(text=f"⏰ Día {dia_actual} KVK | Sistema por CaCoX")
+    embed.set_footer(text=f"⏰ Día {dia_actual} KVK | codigo generado por angel")
     
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
