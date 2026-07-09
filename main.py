@@ -7,7 +7,7 @@ import re
 
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
-ID_CANAL_ANUNCIOS = 1358237524249542751 # Para meta alerta y meta evento
+ID_CANAL_ANUNCIOS = 1358237524249542751 # Solo para meta alerta y meta evento
 ID_CANAL_ACTIVATE = 1358237524799131662 # Solo para meta activate
 # ==================
 
@@ -39,10 +39,9 @@ async def on_message(message):
     peticion = message.content[5:].strip()
     autor_nombre = message.author.display_name
 
-    # ===== META ACTIVATE - INTERACTIVO MULTIUSUARIO - CÓDIGO EMERGENCIA =====
+    # ===== META ACTIVATE - INTERACTIVO - SOLO 1 MENSAJE =====
     if peticion.lower().strip() == "activate":
         msg = await message.channel.send("👤 Menciona a los usuarios a activar (puedes mencionar varios):")
-        mensajes_para_borrar[message.channel.id].append(msg)
 
         def check(m):
             return m.author == message.author and m.channel == message.channel and len(m.mentions) > 0
@@ -52,10 +51,9 @@ async def on_message(message):
             usuarios_mencionados = respuesta.mentions
             usuarios = " ".join([u.mention for u in usuarios_mencionados])
             usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
-            mensajes_para_borrar[message.channel.id].append(respuesta)
         except asyncio.TimeoutError:
-            msg = await message.channel.send("⏰ Tiempo agotado. Usa `meta activate @usuario1 @usuario2`")
-            mensajes_para_borrar[message.channel.id].append(msg)
+            await message.channel.send("⏰ Tiempo agotado. Usa `meta activate @usuario1 @usuario2`")
+            await msg.delete()
             return
 
         texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
@@ -88,26 +86,29 @@ Código emitido por: {autor_nombre}
 
         canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
         if not canal_activate:
-            msg = await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
-            mensajes_para_borrar[message.channel.id].append(msg)
+            await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
+            await msg.delete()
+            await respuesta.delete()
             return
 
-        # ENVÍA SOLO 1 VEZ
+        # ÚNICO SEND - NO HAY MÁS
         await canal_activate.send(content=usuarios, embed=embed)
+        
+        # Limpieza sin mandar confirmación
         await respuesta.delete()
         await msg.delete()
-        return
+        return # CORTA AQUÍ - NO SIGUE EJECUTANDO NADA MÁS
 
-    # ===== META ACTIVATE - DIRECTO MULTIUSUARIO - CÓDIGO EMERGENCIA =====
+    # ===== META ACTIVATE - DIRECTO - SOLO 1 MENSAJE =====
     if peticion.lower().startswith("activate ") and message.mentions:
         usuarios_mencionados = message.mentions
         usuarios = " ".join([u.mention for u in usuarios_mencionados])
         usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
-
+        
         texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
         texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
         texto_escudo = "ESCUDOS" if len(usuarios_mencionados) > 1 else "ESCUDO"
-
+        
         descripcion = f"""🚨 **CÓDIGO DE EMERGENCIA TFT** 🚨
 ⚠️ **ALERTA ROJA / RED ALERT** ⚠️
 
@@ -134,14 +135,13 @@ Código emitido por: {autor_nombre}
 
         canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
         if not canal_activate:
-            msg = await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
-            mensajes_para_borrar[message.channel.id].append(msg)
+            await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
             return
 
-        # ENVÍA SOLO 1 VEZ
+        # ÚNICO SEND - NO HAY MÁS
         await canal_activate.send(content=usuarios, embed=embed)
         await message.delete()
-        return
+        return # CORTA AQUÍ - NO SIGUE EJECUTANDO NADA MÁS
 
     try:
         # ===== META EDITAR =====
