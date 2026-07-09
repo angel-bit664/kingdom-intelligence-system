@@ -47,7 +47,8 @@ async def on_message(message):
 
         try:
             respuesta = await client.wait_for('message', timeout=30.0, check=check)
-            usuario = respuesta.mentions[0].mention
+            usuario_mencion = respuesta.mentions[0]
+            usuario = usuario_mencion.mention
             mensajes_para_borrar[message.channel.id].append(respuesta)
         except asyncio.TimeoutError:
             msg = await message.channel.send("⏰ Tiempo agotado. Usa `meta activate @usuario`")
@@ -77,16 +78,17 @@ async def on_message(message):
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        # CORREGIDO: Solo taggea al usuario, NO @everyone
-        anuncio_msg = await canal_anuncios.send(content=f"{usuario}", embed=embed)
+        # CORREGIDO: Solo taggea al usuario, SIN @everyone, y SOLO 1 MENSAJE
+        anuncio_msg = await canal_anuncios.send(content=usuario, embed=embed)
         ultimo_anuncio[message.channel.id] = anuncio_msg
-        msg = await message.channel.send(f"✅ Aviso enviado a {canal_anuncios.mention}\n💡 Usa `meta editar` para cambiarlo")
-        mensajes_para_borrar[message.channel.id].append(msg)
+        await respuesta.delete() # Borra el mensaje donde mencionaste al usuario
+        await msg.delete() # Borra el "Menciona al usuario"
         return
 
     # ===== META ACTIVATE - DIRECTO =====
     if peticion.lower().startswith("activate ") and message.mentions:
-        usuario = message.mentions[0].mention
+        usuario_mencion = message.mentions[0]
+        usuario = usuario_mencion.mention
         descripcion = f"""👑 **Familia TFT / TFT Family** 👑
 📢 **¡NECESITAMOS QUE TE CONECTES! / WE NEED YOU ONLINE!**
 
@@ -110,11 +112,10 @@ async def on_message(message):
             mensajes_para_borrar[message.channel.id].append(msg)
             return
 
-        # CORREGIDO: Solo taggea al usuario, NO @everyone
-        anuncio_msg = await canal_anuncios.send(content=f"{usuario}", embed=embed)
+        # CORREGIDO: Solo taggea al usuario, SIN @everyone, y SOLO 1 MENSAJE
+        anuncio_msg = await canal_anuncios.send(content=usuario, embed=embed)
         ultimo_anuncio[message.channel.id] = anuncio_msg
-        msg = await message.channel.send(f"✅ Aviso enviado a {canal_anuncios.mention}\n💡 Usa `meta editar` para cambiarlo")
-        mensajes_para_borrar[message.channel.id].append(msg)
+        await message.delete() # Borra tu comando "meta activate @user"
         return
 
     try:
@@ -182,8 +183,10 @@ Si quieren pelear y defender / If you want to fight and defend, los esperamos / 
                 embed_nuevo.set_footer(text=f"Editado por: {autor_nombre}")
 
                 await anuncio_viejo.edit(embed=embed_nuevo)
-                msg = await message.channel.send("✅ Anuncio editado correctamente")
-                mensajes_para_borrar[message.channel.id].append(msg)
+                await message.delete()
+                await resp_es.delete()
+                await resp_en.delete()
+                await msg.delete()
 
             except asyncio.TimeoutError:
                 msg = await message.channel.send("⏰ Tiempo agotado. Edición cancelada")
@@ -284,11 +287,12 @@ Si quieren pelear y defender / If you want to fight and defend, los esperamos / 
                 embed = discord.Embed(description=descripcion, color=0xF1C40F)
                 embed.set_footer(text=f"Alerta enviada por: {autor_nombre}")
 
-                # CORRECTO: Alerta SÍ lleva @everyone
                 anuncio_msg = await canal.send("@everyone", embed=embed)
                 ultimo_anuncio[message.channel.id] = anuncio_msg
-                msg = await message.channel.send(f"✅ Alerta enviada a {canal.mention}\n💡 Usa `meta editar` para cambiarla")
-                mensajes_para_borrar[message.channel.id].append(msg)
+                await message.delete()
+                await resp_es.delete()
+                await resp_en.delete()
+                await msg.delete()
 
             except asyncio.TimeoutError:
                 msg = await message.channel.send("⏰ Tiempo agotado. Alerta cancelada")
@@ -339,12 +343,13 @@ Vamos por la victoria / Let's go for victory"""
                 embed = discord.Embed(description=descripcion, color=0x3498DB)
                 embed.set_footer(text=f"Evento publicado por: {autor_nombre}")
 
-                # CORRECTO: Evento SÍ lleva @everyone + reacción 👍
                 msg_evento = await canal.send("@everyone", embed=embed)
                 await msg_evento.add_reaction("👍")
                 ultimo_anuncio[message.channel.id] = msg_evento
-                msg = await message.channel.send(f"✅ Evento publicado en {canal.mention}\n💡 Usa `meta editar` para cambiarlo")
-                mensajes_para_borrar[message.channel.id].append(msg)
+                await message.delete()
+                await resp_es.delete()
+                await resp_en.delete()
+                await msg.delete()
 
             except asyncio.TimeoutError:
                 msg = await message.channel.send("⏰ Tiempo agotado. Evento cancelado")
