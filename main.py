@@ -4,6 +4,7 @@ import asyncio
 from deep_translator import GoogleTranslator
 from collections import defaultdict
 import re
+import time
 
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -22,6 +23,7 @@ procesando_activate = set() # CANDADO ANTI-DUPLICADOS
 @client.event
 async def on_ready():
     print(f'✅ Bot conectado como {client.user}')
+    print(f'✅ ID del bot: {client.user.id}')
     print(f'✅ Listo en {len(client.guilds)} servidores')
     print(f'✅ Canal anuncios: {ID_CANAL_ANUNCIOS}')
     print(f'✅ Canal activate: {ID_CANAL_ACTIVATE}')
@@ -40,21 +42,24 @@ async def on_message(message):
     peticion = message.content[5:].strip()
     autor_nombre = message.author.display_name
 
-    # ===== META ACTIVATE - UN SOLO BLOQUE CON CANDADO =====
+    # ===== META ACTIVATE - CON LOGS PARA DEBUG =====
     if peticion.lower().startswith("activate"):
+        print(f'[ACTIVATE] Comando recibido de {autor_nombre} - {time.time()}')
+
         # CANDADO: Si ya se está procesando un activate de este usuario, ignora
         if message.author.id in procesando_activate:
+            print(f'[ACTIVATE] BLOQUEADO - Ya se está procesando activate de {autor_nombre}')
             return
-        
+
         procesando_activate.add(message.author.id)
-        
+        print(f'[ACTIVATE] Candado puesto para {autor_nombre}')
+
         try:
             usuarios_mencionados = []
 
-            # Si ya trae menciones, las usa directo
             if message.mentions:
                 usuarios_mencionados = message.mentions
-            # Si no trae, las pide interactivo
+                print(f'[ACTIVATE] Menciones directas: {len(usuarios_mencionados)}')
             else:
                 msg = await message.channel.send("👤 Menciona a los usuarios a activar (puedes mencionar varios):")
 
@@ -64,6 +69,7 @@ async def on_message(message):
                 try:
                     respuesta = await client.wait_for('message', timeout=30.0, check=check)
                     usuarios_mencionados = respuesta.mentions
+                    print(f'[ACTIVATE] Menciones interactivas: {len(usuarios_mencionados)}')
                     await respuesta.delete()
                     await msg.delete()
                 except asyncio.TimeoutError:
@@ -111,14 +117,17 @@ Código emitido por: {autor_nombre}
                 await message.channel.send(f"❌ **No encontré el canal de activate**\nID configurado: `{ID_CANAL_ACTIVATE}`")
                 return
 
+            print(f'[ACTIVATE] Enviando mensaje ÚNICO al canal {ID_CANAL_ACTIVATE}')
             # ÚNICO SEND - SOLO 1 VEZ
             await canal_activate.send(content=usuarios, embed=embed)
+            print(f'[ACTIVATE] Mensaje enviado exitosamente')
             await message.delete()
-            
+
         finally:
             # QUITA EL CANDADO SIEMPRE, aunque haya error
             procesando_activate.discard(message.author.id)
-        
+            print(f'[ACTIVATE] Candado liberado para {autor_nombre}')
+
         return # CORTA AQUÍ - NO EJECUTA NADA MÁS
 
     try:
