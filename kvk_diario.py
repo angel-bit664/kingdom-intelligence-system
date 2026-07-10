@@ -52,6 +52,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     df['poder_inicial'] = df[f'{col_poder}_inicial'].fillna(df['poder_actual'])
     df['cambio_poder'] = df['poder_actual'] - df['poder_inicial']
     df['meta_dia'] = df['poder_inicial'] * (1 + 0.017 * dia_actual)
+    # 👇 AQUÍ ESTABA EL ERROR - FALTABA UN PARÉNTESIS
     df['porcentaje_avance'] = ((df['poder_actual'] / df['meta_dia'].replace(0, 1)) - 1) * 100
     df['meritos_ganados'] = df[f'{col_meritos}_final'] - df[f'{col_meritos}_inicial'].fillna(0)
 
