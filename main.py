@@ -385,6 +385,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
     # ===== META KVKDIARIO - CORREGIDO =====
     
   # ===== META KVKDIARIO =====
+print(f"DEBUG: Archivos recibidos: {[a.filename for a in message.attachments]}")
 if peticion.lower().startswith("kvkdiario"):
     if not message.attachments:
         await message.channel.send("❌ **Sube mínimo 2 archivos Excel del KVK** o 1 ZIP junto con `meta kvkdiario`")
