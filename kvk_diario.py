@@ -71,19 +71,19 @@ async def procesar_kvk_por_dia(rutas_archivos):
     for df in [df_inicial, df_final]:
         # Poder
         df[col_poder] = (df[col_poder].astype(str)
-                       .str.replace(',', '', regex=False)
-                       .str.replace(' ', '', regex=False)
-                       .str.replace('M', 'e6', case=False, regex=False)
-                       .str.replace('K', 'e3', case=False, regex=False)
-                       .str.replace('B', 'e9', case=False, regex=False))
+                      .str.replace(',', '', regex=False)
+                      .str.replace(' ', '', regex=False)
+                      .str.replace('M', 'e6', case=False, regex=False)
+                      .str.replace('K', 'e3', case=False, regex=False)
+                      .str.replace('B', 'e9', case=False, regex=False))
         df[col_poder] = pd.to_numeric(df[col_poder], errors='coerce').fillna(0)
 
         # Méritos
         df[col_meritos] = (df[col_meritos].astype(str)
-                       .str.replace(',', '', regex=False)
-                       .str.replace(' ', '', regex=False)
-                       .str.replace('M', 'e6', case=False, regex=False)
-                       .str.replace('K', 'e3', case=False, regex=False))
+                      .str.replace(',', '', regex=False)
+                      .str.replace(' ', '', regex=False)
+                      .str.replace('M', 'e6', case=False, regex=False)
+                      .str.replace('K', 'e3', case=False, regex=False))
         df[col_meritos] = pd.to_numeric(df[col_meritos], errors='coerce').fillna(0)
 
     # 5. FILTRAR SI HAY LÍMITE
@@ -195,7 +195,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     ws_dash['A1'].border = border_thick
 
     ws_dash.merge_cells('A4:P4')
-    filtro_txt = f"Filtro: >{PODER_MINIMO/1e6:.0f}M" if PODER_MINIMO > 0 else "Todos los jugadores"
+    filtro_txt = f"Filtro: >{PODER_MINIMO/1e6:.0f}M" if PODER_MINIMO > 0 else "Todos los jugadores" # <- LÍNEA 544 CORREGIDA
     ws_dash['A4'] = f"Período: {nombres_archivos[0]} → {nombres_archivos[-1]} | {filtro_txt}"
     ws_dash['A4'].font = Font(size=11, italic=True, color=COLORES['azul_oscuro'])
     ws_dash['A4'].fill = PatternFill("solid", fgColor=COLORES['gris'])
@@ -308,7 +308,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     for col in range(1, 17):
         ws_dash.column_dimensions[get_column_letter(col)].width = 14
 
-    # ===== HOJA 2: RANKING GENERAL 🆕 =====
+    # ===== HOJA 2: RANKING GENERAL =====
     ws_ranking = wb.create_sheet("RANKING GENERAL")
     ws_ranking.merge_cells('A1:I1')
     ws_ranking['A1'] = f"🏆 RANKING GENERAL - TODOS LOS JUGADORES"
@@ -426,119 +426,4 @@ async def procesar_kvk_por_dia(rutas_archivos):
     for _, jugador in df_bajas.iterrows():
         ws_mov.cell(row, 5, str(jugador[col_nombre])[:30])
         ws_mov.cell(row, 6, jugador['poder_inicial'])
-        ws_mov.cell(row, 7, f"#{int(jugador['rank_inicial'])}" if pd.notna(jugador['rank_inicial']) else "N/A")
-        ws_mov.cell(row, 6).number_format = '#,##0'
-        row += 1
-
-    for col in range(1, 8):
-        ws_mov.column_dimensions[get_column_letter(col)].width = 20
-
-    # HOJA 4: DETALLE COMPLETO
-    ws_tabla = wb.create_sheet("DETALLE COMPLETO")
-    ws_tabla.merge_cells('A1:L1')
-    ws_tabla['A1'] = f"📊 DETALLE DE TODOS LOS JUGADORES"
-    ws_tabla['A1'].font = titulo_style
-    ws_tabla['A1'].fill = PatternFill("solid", fgColor=COLORES['azul_oscuro'])
-    ws_tabla['A1'].alignment = center
-
-    df_export = df[[col_nombre, 'poder_actual', 'poder_inicial', 'cambio_poder', 'cambio_poder_pct', 'meta_dia', 'porcentaje_avance', 'meritos_ganados', 'eficiencia_meritos', 'pct_meta_meritos', 'estado', 'cambio_rank']].copy()
-    df_export.columns = ['Nombre', 'Poder Actual', 'Poder Inicial', 'Cambio Poder', '% Cambio', 'Meta Día 7', '% vs Meta', 'Méritos Ganados', 'Efic. Méritos', '% Meta Méritos', 'Estado', 'Cambio Rank']
-
-    for r in dataframe_to_rows(df_export, index=False, header=True):
-        ws_tabla.append(r)
-
-    for cell in ws_tabla[2]:
-        cell.font = header_style
-        cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
-        cell.alignment = center
-        cell.border = border_thick
-
-    for row in ws_tabla.iter_rows(min_row=3, max_row=len(df_export)+2):
-        row[1].number_format = '#,##0'
-        row[2].number_format = '#,##0'
-        row[3].number_format = '#,##0'
-        row[4].number_format = '0.0%'
-        row[5].number_format = '#,##0'
-        row[6].number_format = '0.0%'
-        row[7].number_format = '#,##0'
-        row[8].number_format = '0.00'
-        row[9].number_format = '0.0%'
-        row[11].number_format = '0'
-
-    ws_tabla.conditional_formatting.add(
-        f'D3:D{len(df_export)+2}',
-        DataBarRule(start_type='num', start_value=-10000000, end_type='num', end_value=10000000,
-                   color=COLORES['azul_claro'], showValue=True)
-    )
-
-    ws_tabla.conditional_formatting.add(
-        f'G3:G{len(df_export)+2}',
-        IconSetRule('3Arrows', 'percent', [0, 33, 67], showValue=True)
-    )
-
-    ws_tabla.conditional_formatting.add(
-        f'I3:I{len(df_export)+2}',
-        ColorScaleRule(start_type='min', start_color='FF6B6B',
-                      mid_type='percentile', mid_value=50, mid_color='FFD93D',
-                      end_type='max', end_color='6BCF7F')
-    )
-
-    for row in ws_tabla.iter_rows(min_row=3, max_row=len(df_export)+2):
-        estado = str(row[10].value)
-        if '🟢' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='E2EFDA')
-        elif '🔴' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='FFC7CE')
-        elif '👻' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='FFF2CC')
-        elif '⚠️' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='FFE699')
-        elif '🆕' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='C6E0B4')
-        elif '📉' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='FCE4D6')
-
-    ws_tabla.auto_filter.ref = f"A2:L{len(df_export)+2}"
-    ws_tabla.freeze_panes = 'A3'
-
-    for col in range(1, 13):
-        ws_tabla.column_dimensions[get_column_letter(col)].width = 18
-
-    # HOJAS DE CATEGORÍAS
-    hojas_categorias = [
-        ("FANTASMAS", df_activos[df_activos['estado'] == '👻 Fantasma'], 'meritos_ganados', 'asc'),
-        ("BALLENAS MUERTAS", df_activos[df_activos['estado'] == '🔴 Ballena Muerta'], 'cambio_poder', 'asc'),
-        ("RIESGO KICK", df_activos[df_activos['estado'] == '⚠️ Riesgo Kick'], 'porcentaje_avance', 'asc'),
-        ("SIN MÉRITOS", df_activos[df_activos['estado'] == '📉 Sin Méritos'], 'pct_meta_meritos', 'asc')
-    ]
-
-    for nombre_hoja, df_cat, sort_col, orden in hojas_categorias:
-        ws = wb.create_sheet(nombre_hoja)
-        ws.merge_cells('A1:F1')
-        ws['A1'] = f"⚠️ {nombre_hoja} - {len(df_cat)} JUGADORES"
-        ws['A1'].font = titulo_style
-        ws['A1'].fill = PatternFill("solid", fgColor=COLORES['rojo'])
-        ws['A1'].alignment = center
-
-        df_cat_export = df_cat[[col_nombre, 'poder_actual', 'cambio_poder', 'porcentaje_avance', 'meritos_ganados', 'eficiencia_meritos']].copy()
-        df_cat_export = df_cat_export.sort_values(sort_col, ascending=(orden=='asc'))
-        df_cat_export.columns = ['Nombre', 'Poder Actual', 'Cambio Poder', '% vs Meta', 'Méritos Ganados', 'Efic. Méritos']
-
-        for r in dataframe_to_rows(df_cat_export, index=False, header=True):
-            ws.append(r)
-
-        for cell in ws[2]:
-            cell.font = header_style
-            cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
-            cell.alignment = center
-
-        for col in range(1, 7):
-            ws.column_dimensions[get_column_letter(col)].width = 20
-
-    # Guardar
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-
-    # Embed
-    filtro_txt = f"Filtro: >{PODER_MINIMO/1e6:.0f}
+        ws_mov.cell(row,
