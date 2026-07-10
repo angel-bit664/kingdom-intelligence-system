@@ -54,7 +54,6 @@ async def on_message(message):
 
         try:
             usuarios_mencionados = []
-
             if message.mentions:
                 usuarios_mencionados = message.mentions
                 print(f'[ACTIVATE] Menciones directas: {len(usuarios_mencionados)}')
@@ -81,7 +80,6 @@ async def on_message(message):
 
             usuarios = " ".join([u.mention for u in usuarios_mencionados])
             usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
-
             texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
             texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
             texto_escudo = "ESCUDOS" if len(usuarios_mencionados) > 1 else "ESCUDO"
@@ -95,14 +93,15 @@ async def on_message(message):
 NO ACTIVE SHIELD - DANGER ZONE
 
 🛡️ *PROTOCOLO DE EMERGENCIA / EMERGENCY PROTOCOL:*
-   1. *{texto_plural} INMEDIATAMENTE / CONNECT NOW*
-   2. *ESCUDO 8H YA / 8h SHIELD NOW*
-   3. *TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT*
+1. *{texto_plural} INMEDIATAMENTE / CONNECT NOW*
+2. *ESCUDO 8H YA / 8h SHIELD NOW*
+3. *TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT*
 
 ⚔️ *ALIANZA TFT EN ALERTA MÁXIMA*
 TFT ALLIANCE ON MAXIMUM ALERT
 
 Código emitido por: {autor_nombre}
+
 ⏰ TIEMPO ES CRÍTICO / TIME IS CRITICAL"""
 
             embed = discord.Embed(description=descripcion, color=0xFF0000)
@@ -121,7 +120,6 @@ Código emitido por: {autor_nombre}
         finally:
             procesando_activate.discard(message.author.id)
             print(f'[ACTIVATE] Candado liberado para {autor_nombre}')
-
         return
 
     # ===== META CUMPLEAÑOS - ESTILO ACTIVATE BILINGÜE =====
@@ -155,17 +153,17 @@ Código emitido por: {autor_nombre}
 CELEBRATION MODE - PARTY TIME
 
 🎁 *MENSAJE / MESSAGE:*
-   🇲🇽 {mensaje_es}
-   🇺🇸 {mensaje_en}
+🇲🇽 {mensaje_es}
+🇺🇸 {mensaje_en}
 
 ⚔️ *LA FAMILIA TFT TE CELEBRA*
 TFT FAMILY CELEBRATES YOU
 
 Felicitación enviada por: Todo el grupo de Oficiales
+
 🎈 QUE LA PASES INCREÍBLE / HAVE AN AMAZING TIME"""
 
         embed = discord.Embed(description=descripcion, color=0xFFD700) # Dorado
-
         canal_cumple = client.get_channel(ID_CANAL_ACTIVATE)
         if not canal_cumple:
             await message.channel.send(f"❌ **No encontré el canal**\nID configurado: {ID_CANAL_ACTIVATE}")
@@ -240,6 +238,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
                     return
                 except:
                     pass
+
         await message.channel.send("❌ **No encontré anuncio para editar**")
         return
 
@@ -247,15 +246,15 @@ Felicitación enviada por: Todo el grupo de Oficiales
     if peticion.lower().startswith("limpia"):
         args = peticion.split()
         cantidad = 50 # default
-
         if len(args) > 1 and args[1].isdigit():
             cantidad = int(args[1])
-            if cantidad > 100:
-                await message.channel.send("❌ **Máximo 100 mensajes** por Discord API")
-                return
-            if cantidad < 1:
-                await message.channel.send("❌ **Mínimo 1 mensaje**")
-                return
+
+        if cantidad > 100:
+            await message.channel.send("❌ **Máximo 100 mensajes** por Discord API")
+            return
+        if cantidad < 1:
+            await message.channel.send("❌ **Mínimo 1 mensaje**")
+            return
 
         perms = message.channel.permissions_for(message.guild.me)
         if not perms.manage_messages:
@@ -333,6 +332,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
                 await message.channel.send("❌ **Tier inválido.** Usa T1, T2, T3, T4 o T5")
                 return
             segundos = tiempos[tier] * cantidad
+
             def format_tiempo(s):
                 dias = int(s // 86400)
                 horas = int((s % 86400) // 3600)
@@ -344,6 +344,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
                 if minutos > 0: partes.append(f"{minutos}m")
                 if segs > 0 or not partes: partes.append(f"{segs}s")
                 return " ".join(partes)
+
             await message.channel.send(f"⚔️ **{cantidad:,} {tier}** = `{format_tiempo(segundos)}` de entrenamiento")
         except:
             await message.channel.send("❌ **Cantidad inválida**")
@@ -355,18 +356,24 @@ Felicitación enviada por: Todo el grupo de Oficiales
         if not tiempo_str:
             await message.channel.send("❌ **Uso:** `meta calc speedup 7d 12h 30m`")
             return
+
         segundos = 0
         for parte in tiempo_str.split():
-            if parte.endswith('d'): segundos += int(parte[:-1]) * 86400
-            elif parte.endswith('h'): segundos += int(parte[:-1]) * 3600
-            elif parte.endswith('m'): segundos += int(parte[:-1]) * 60
-            elif parte.endswith('s'): segundos += int(parte[:-1])
+            if parte.endswith('d'):
+                segundos += int(parte[:-1]) * 86400
+            elif parte.endswith('h'):
+                segundos += int(parte[:-1]) * 3600
+            elif parte.endswith('m'):
+                segundos += int(parte[:-1]) * 60
+            elif parte.endswith('s'):
+                segundos += int(parte[:-1])
 
         embed = discord.Embed(title="⏳ Conversión a Speedups", color=0xF39C12)
         embed.add_field(name="1 minuto", value=f"`{segundos // 60:,}`", inline=True)
         embed.add_field(name="5 minutos", value=f"`{segundos // 300:,}`", inline=True)
         embed.add_field(name="15 minutos", value=f"`{segundos // 900:,}`", inline=True)
         embed.add_field(name="60 minutos", value=f"`{segundos // 3600:,}`", inline=True)
+
         def format_tiempo(s):
             dias = int(s // 86400)
             horas = int((s % 86400) // 3600)
@@ -378,41 +385,43 @@ Felicitación enviada por: Todo el grupo de Oficiales
             if minutos > 0: partes.append(f"{minutos}m")
             if segs > 0 or not partes: partes.append(f"{segs}s")
             return " ".join(partes)
+
         embed.set_footer(text=f"Total: {format_tiempo(segundos)}")
         await message.channel.send(embed=embed)
         return
 
-    # ===== META KVKDIARIO - CORREGIDO =====
-    
-  # ===== META KVKDIARIO =====
-print(f"DEBUG: Archivos recibidos: {[a.filename for a in message.attachments]}")
-if peticion.lower().startswith("kvkdiario"):
-    if not message.attachments:
-        await message.channel.send("❌ **Sube mínimo 2 archivos Excel del KVK** o 1 ZIP junto con `meta kvkdiario`")
+    # ===== META KVKDIARIO =====
+    if peticion.lower().startswith("kvkdiario"):
+        print(f"DEBUG: Archivos recibidos: {[a.filename for a in message.attachments]}")
+        if not message.attachments:
+            await message.channel.send("❌ **Sube mínimo 2 archivos Excel del KVK** o 1 ZIP junto con `meta kvkdiario`")
+            return
+
+        rutas_archivos = []
+        for attachment in message.attachments:
+            if attachment.filename.endswith('.xlsx') or attachment.filename.endswith('.zip'):
+                ruta = f"/tmp/{attachment.filename}"
+                await attachment.save(ruta)
+                rutas_archivos.append(ruta)
+
+        if len(rutas_archivos) < 1:
+            await message.channel.send("❌ **Necesito mínimo 1 archivo ZIP o 2 Excel**")
+            return
+
+        msg_procesando = await message.channel.send(f"⏳ Procesando {len(rutas_archivos)} archivo(s) KVK...")
+
+        try:
+            embed, archivo_excel = await procesar_kvk_por_dia(rutas_archivos)
+            await message.channel.send(embed=embed, file=archivo_excel)
+            await msg_procesando.delete()
+        except Exception as e:
+            await msg_procesando.edit(content=f"❌ **Error:** {str(e)[:150]}")
         return
 
-    rutas_archivos = []
-    for attachment in message.attachments:
-        # 👇 ESTA ES LA LÍNEA QUE CAMBIAS - agrega 'or attachment.filename.endswith('.zip')'
-        if attachment.filename.endswith('.xlsx') or attachment.filename.endswith('.zip'):
-            ruta = f"/tmp/{attachment.filename}"
-            await attachment.save(ruta)
-            rutas_archivos.append(ruta)
+    # Si no matcheó ningún comando
+    await message.channel.send("❌ **Comando no reconocido.** Usa `meta ayuda` para ver la lista")
 
-    if len(rutas_archivos) < 1:
-        await message.channel.send("❌ **Necesito mínimo 1 archivo ZIP o 2 Excel**")
-        return
-
-    msg_procesando = await message.channel.send(f"⏳ Procesando {len(rutas_archivos)} archivo(s) KVK...")
-
-    try:
-        embed, archivo_excel = await procesar_kvk_por_dia(rutas_archivos)
-        await message.channel.send(embed=embed, file=archivo_excel)
-        await msg_procesando.delete()
-    except Exception as e:
-        await msg_procesando.edit(content=f"❌ **Error:** {str(e)[:150]}")
-    return
-
+client.run(TOKEN)
     # Si no matcheó ningún comando
     await message.channel.send("❌ **Comando no reconocido.** Usa `meta ayuda` para ver la lista")
 
