@@ -422,7 +422,3 @@ Felicitación enviada por: Todo el grupo de Oficiales
     await message.channel.send("❌ **Comando no reconocido.** Usa `meta ayuda` para ver la lista")
 
 client.run(TOKEN)
-    # Si no matcheó ningún comando
-    await message.channel.send("❌ **Comando no reconocido.** Usa `meta ayuda` para ver la lista")
-
-client.run(TOKEN)
