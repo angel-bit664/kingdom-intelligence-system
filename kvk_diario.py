@@ -45,6 +45,13 @@ async def procesar_kvk_por_dia(rutas_archivos):
     col_poder = detectar_columna(df_final, ['poder', 'power'])
     col_meritos = detectar_columna(df_final, ['meritos', 'méritos', 'merits', 'honor'])
 
+    # Limpiar números ANTES de filtrar
+    for df in [df_inicial, df_final]:
+        df[col_poder] = df[col_poder].astype(str).str.replace(',', '').str.replace('M', 'e6').str.replace('K', 'e3')
+        df[col_poder] = pd.to_numeric(df[col_poder], errors='coerce').fillna(0)
+        df[col_meritos] = df[col_meritos].astype(str).str.replace(',', '').str.replace('M', 'e6').str.replace('K', 'e3')
+        df[col_meritos] = pd.to_numeric(df[col_meritos], errors='coerce').fillna(0)
+
     # ===== FILTRAR GRANJAS < 30M =====
     df_inicial = df_inicial[df_inicial[col_poder] >= PODER_MINIMO].copy()
     df_final = df_final[df_final[col_poder] >= PODER_MINIMO].copy()
@@ -56,22 +63,26 @@ async def procesar_kvk_por_dia(rutas_archivos):
     nuevos = jugadores_final - jugadores_inicial # Altas
     bajas = jugadores_inicial - jugadores_final # Bajas
 
-    # Merge y cálculos - CORREGIDO
-    df = df_final.merge(df_inicial, on=col_nombre, suffixes=('_final', '_inicial'), how='outer')
+    # Merge y cálculos - SIN SUFFIX para evitar el bug
+    df = df_final.merge(df_inicial, on=col_nombre, how='outer', suffixes=('', '_old'))
 
-    # Limpiar números - quitar comas, M, K, etc
-    for col in [f'{col_poder}_final', f'{col_poder}_inicial', f'{col_meritos}_final', f'{col_meritos}_inicial']:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.replace(',', '').str.replace('M', 'e6').str.replace('K', 'e3')
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    # Renombrar columnas para que no choque
+    df = df.rename(columns={
+        f'{col_poder}': 'poder_actual',
+        f'{col_poder}_old': 'poder_inicial',
+        f'{col_meritos}': 'meritos_final',
+        f'{col_meritos}_old': 'meritos_inicial'
+    })
 
-    # 👇 AQUÍ ESTABA EL ERROR - NOMBRES CORREGIDOS
-    df['poder_actual'] = df[f'{col_poder}_final'].fillna(0)
-    df['poder_inicial'] = df[f'{col_poder}_inicial'].fillna(0)
+    df['poder_actual'] = df['poder_actual'].fillna(0)
+    df['poder_inicial'] = df['poder_inicial'].fillna(0)
+    df['meritos_final'] = df['meritos_final'].fillna(0)
+    df['meritos_inicial'] = df['meritos_inicial'].fillna(0)
+
     df['cambio_poder'] = df['poder_actual'] - df['poder_inicial']
     df['meta_dia'] = df['poder_inicial'] * (1 + 0.017 * dia_actual)
     df['porcentaje_avance'] = ((df['poder_actual'] / df['meta_dia'].replace(0, 1)) - 1) * 100
-    df['meritos_ganados'] = df[f'{col_meritos}_final'].fillna(0) - df[f'{col_meritos}_inicial'].fillna(0)
+    df['meritos_ganados'] = df['meritos_final'] - df['meritos_inicial']
 
     # Filtrar granjas del resultado final también
     df = df[df['poder_actual'] >= PODER_MINIMO].copy()
@@ -86,9 +97,10 @@ async def procesar_kvk_por_dia(rutas_archivos):
     df.loc[(df['estado']!= '❌ BAJA') & (df['poder_actual'] >= 50_000_000) & (df['porcentaje_avance'] < -5), 'estado'] = '⚠️ Riesgo Kick'
 
     # Rankings - cambios de posición
-    df_final_rank = df_final.copy()
+    df_final_rank = df_final[[col_nombre, col_poder]].copy()
     df_final_rank['rank_actual'] = df_final_rank[col_poder].rank(ascending=False, method='min')
-    df_inicial_rank = df_inicial.copy()
+
+    df_inicial_rank = df_inicial[[col_nombre, col_poder]].copy()
     df_inicial_rank['rank_inicial'] = df_inicial_rank[col_poder].rank(ascending=False, method='min')
 
     df = df.merge(df_final_rank[[col_nombre, 'rank_actual']], on=col_nombre, how='left')
@@ -374,17 +386,20 @@ async def procesar_kvk_por_dia(rutas_archivos):
     )
 
     if len(df_activos) > 0:
+        top_gan = df_activos.nlargest(3, 'cambio_poder')[[col_nombre, 'cambio_poder']]
+        top_per = df_activos.nsmallest(3, 'cambio_poder')[[col_nombre, 'cambio_poder']]
+
         embed.add_field(
             name="📈 TOP GANADORES",
             value="\n".join([f"{i+1}. {row[col_nombre][:15]} +{row['cambio_poder']/1e6:.0f}M"
-                            for i, (_, row) in enumerate(df_activos.nlargest(3, 'cambio_poder')[[col_nombre, 'cambio_poder']].iterrows())]),
+                            for i, (_, row) in enumerate(top_gan.iterrows())]),
             inline=True
         )
 
         embed.add_field(
             name="📉 TOP PERDEDORES",
             value="\n".join([f"{i+1}. {row[col_nombre][:15]} {row['cambio_poder']/1e6:.0f}M"
-                            for i, (_, row) in enumerate(df_activos.nsmallest(3, 'cambio_poder')[[col_nombre, 'cambio_poder']].iterrows())]),
+                            for i, (_, row) in enumerate(top_per.iterrows())]),
             inline=True
         )
 
