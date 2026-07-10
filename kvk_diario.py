@@ -1,15 +1,18 @@
 import pandas as pd
 import discord
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, NamedStyle
-from openpyxl.chart import BarChart, PieChart, LineChart, Reference
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.chart import BarChart, PieChart, Reference
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import ColorScaleRule, DataBarRule, IconSetRule
 import io
 import zipfile
 
 # ===== CONFIG =====
-PODER_MINIMO = 0 # Cambia a 30_000_000 si quieres filtrar granjas
+PODER_MINIMO = 0 # 0 = Todos, 30_000_000 = Solo cuentas >30M
+MERITOS_ESPERADOS_POR_DIA = 100_000 # Meta: 100k méritos diarios
+# ==================
+
 COLORES = {
     'azul_oscuro': '1F4E78',
     'azul_claro': '4472C4',
@@ -20,10 +23,21 @@ COLORES = {
     'gris': 'D9D9D9',
     'blanco': 'FFFFFF'
 }
-# ==================
+
+def clasificar_eficiencia_meritos(pct_meritos_vs_poder):
+    """Clasifica la eficiencia de méritos según los rangos definidos"""
+    if pct_meritos_vs_poder > 12:
+        return '🏆 Élite'
+    elif pct_meritos_vs_poder >= 10:
+        return '✅ Normal'
+    elif pct_meritos_vs_poder >= 8:
+        return '🟡 En Rango'
+    elif pct_meritos_vs_poder >= 5:
+        return '⚠️ Bajo'
+    else:
+        return '❌ Fuera de Rango'
 
 async def procesar_kvk_por_dia(rutas_archivos):
-    # Soporte para ZIP
     archivos_excel = []
     for ruta in rutas_archivos:
         if ruta.endswith('.zip'):
@@ -38,7 +52,6 @@ async def procesar_kvk_por_dia(rutas_archivos):
     if len(archivos_excel) < 2:
         raise ValueError("Necesitas mínimo 2 días de KVK en Excel o 1 ZIP con varios")
 
-    # Leer y ordenar por nombre de archivo
     dfs = []
     nombres_archivos = []
     for ruta in sorted(archivos_excel):
@@ -51,34 +64,34 @@ async def procesar_kvk_por_dia(rutas_archivos):
     df_final = dfs[-1]
     dia_actual = len(dfs)
 
-    # Detectar columnas
     col_nombre = detectar_columna(df_final, ['nombre', 'name', 'jugador', 'player'])
     col_poder = detectar_columna(df_final, ['poder', 'power'])
     col_meritos = detectar_columna(df_final, ['meritos', 'méritos', 'merits', 'honor'])
 
-    # Limpiar números - ROBUSTO
+    # Limpiar números
     for df in [df_inicial, df_final]:
         df[col_poder] = (df[col_poder].astype(str)
-                       .str.replace(',', '')
-                       .str.replace(' ', '')
-                       .str.replace('M', 'e6', case=False)
-                       .str.replace('K', 'e3', case=False)
-                       .str.replace('B', 'e9', case=False))
+                     .str.replace(',', '')
+                     .str.replace(' ', '')
+                     .str.replace('M', 'e6', case=False)
+                     .str.replace('K', 'e3', case=False)
+                     .str.replace('B', 'e9', case=False))
         df[col_poder] = pd.to_numeric(df[col_poder], errors='coerce').fillna(0)
 
         df[col_meritos] = (df[col_meritos].astype(str)
-                         .str.replace(',', '')
-                         .str.replace(' ', '')
-                         .str.replace('M', 'e6', case=False)
-                         .str.replace('K', 'e3', case=False))
+                      .str.replace(',', '')
+                      .str.replace(' ', '')
+                      .str.replace('M', 'e6', case=False)
+                      .str.replace('K', 'e3', case=False))
         df[col_meritos] = pd.to_numeric(df[col_meritos], errors='coerce').fillna(0)
 
-    # Filtrar granjas
-    df_inicial = df_inicial[df_inicial[col_poder] >= PODER_MINIMO].copy()
-    df_final = df_final[df_final[col_poder] >= PODER_MINIMO].copy()
+    # Filtrar si hay límite
+    if PODER_MINIMO > 0:
+        df_inicial = df_inicial[df_inicial[col_poder] >= PODER_MINIMO].copy()
+        df_final = df_final[df_final[col_poder] >= PODER_MINIMO].copy()
 
     if len(df_final) == 0:
-        raise ValueError(f"❌ Todas las cuentas tienen menos de {PODER_MINIMO:,} de poder.")
+        raise ValueError(f"❌ No hay jugadores con poder > {PODER_MINIMO:,}")
 
     # Detectar altas y bajas
     jugadores_inicial = set(df_inicial[col_nombre].dropna().astype(str))
@@ -100,15 +113,27 @@ async def procesar_kvk_por_dia(rutas_archivos):
     df['meritos_final'] = df['meritos_final'].fillna(0)
     df['meritos_inicial'] = df['meritos_inicial'].fillna(0)
 
-    df = df[df['poder_actual'] >= PODER_MINIMO].copy()
+    if PODER_MINIMO > 0:
+        df = df[df['poder_actual'] >= PODER_MINIMO].copy()
 
-    # Cálculos
+    # CÁLCULOS PRINCIPALES
     df['cambio_poder'] = df['poder_actual'] - df['poder_inicial']
     df['cambio_poder_pct'] = ((df['poder_actual'] / df['poder_inicial'].replace(0, 1)) - 1) * 100
     df['meta_dia'] = df['poder_inicial'] * (1 + 0.017 * dia_actual)
     df['porcentaje_avance'] = ((df['poder_actual'] / df['meta_dia'].replace(0, 1)) - 1) * 100
     df['meritos_ganados'] = df['meritos_final'] - df['meritos_inicial']
     df['meritos_por_dia'] = df['meritos_ganados'] / dia_actual
+
+    # MÉTRICAS DE EFICIENCIA - TU SOLICITUD
+    df['poder_maximo'] = df[['poder_actual', 'poder_inicial']].max(axis=1)
+    df['pct_meritos_vs_poder'] = (df['meritos_ganados'] / df['poder_maximo'].replace(0, 1)) * 100 # % Méritos vs Poder Máx
+    df['meritos_por_semana'] = df['meritos_ganados'] / (dia_actual / 7)
+    df['eficiencia_meritos'] = df['meritos_ganados'] / (df['poder_maximo'] / 1_000_000).replace(0, 1) # Méritos por millón de poder
+    df['meta_meritos'] = MERITOS_ESPERADOS_POR_DIA * dia_actual
+    df['pct_meta_meritos'] = ((df['meritos_ganados'] / df['meta_meritos'].replace(0, 1)) - 1) * 100
+
+    # 🆕 CLASIFICACIÓN DE EFICIENCIA DE MÉRITOS SEGÚN TUS RANGOS
+    df['clasificacion_meritos'] = df['pct_meritos_vs_poder'].apply(clasificar_eficiencia_meritos)
 
     # Estados
     df['estado'] = '🟡 Normal'
@@ -118,6 +143,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     df.loc[(df['estado']!= '❌ BAJA') & (df['poder_actual'] >= 150_000_000) & (df['cambio_poder'] < 0), 'estado'] = '🔴 Ballena Muerta'
     df.loc[(df['estado']!= '❌ BAJA') & (df['meritos_ganados'] < 500_000) & (df['poder_actual'] > 0), 'estado'] = '👻 Fantasma'
     df.loc[(df['estado']!= '❌ BAJA') & (df['poder_actual'] >= 50_000_000) & (df['porcentaje_avance'] < -5), 'estado'] = '⚠️ Riesgo Kick'
+    df.loc[(df['estado']!= '❌ BAJA') & (df['pct_meta_meritos'] < -50), 'estado'] = '📉 Sin Méritos'
 
     # Rankings
     df_final_rank = df_final[[col_nombre, col_poder]].copy()
@@ -139,14 +165,23 @@ async def procesar_kvk_por_dia(rutas_archivos):
     poder_perdido = abs(df_activos[df_activos['cambio_poder'] < 0]['cambio_poder'].sum())
     fantasmas = len(df_activos[df_activos['estado'] == '👻 Fantasma'])
     ballenas_muertas = len(df_activos[df_activos['estado'] == '🔴 Ballena Muerta'])
+    sin_meritos = len(df_activos[df_activos['estado'] == '📉 Sin Méritos'])
     meritos_totales = df_activos['meritos_ganados'].sum()
+    eficiencia_promedio = df_activos[df_activos['poder_maximo'] > 0]['eficiencia_meritos'].mean()
+
+    # Contar clasificaciones de méritos
+    elite = len(df_activos[df_activos['clasificacion_meritos'] == '🏆 Élite'])
+    normal_meritos = len(df_activos[df_activos['clasificacion_meritos'] == '✅ Normal'])
+    en_rango = len(df_activos[df_activos['clasificacion_meritos'] == '🟡 En Rango'])
+    bajo = len(df_activos[df_activos['clasificacion_meritos'] == '⚠️ Bajo'])
+    fuera_rango = len(df_activos[df_activos['clasificacion_meritos'] == '❌ Fuera de Rango'])
 
     # ===== CREAR EXCEL PRO =====
     wb = Workbook()
     ws_dash = wb.active
     ws_dash.title = "EXECUTIVE DASHBOARD"
 
-    # Estilos profesionales
+    # Estilos
     titulo_style = Font(bold=True, size=22, color=COLORES['blanco'], name='Calibri')
     header_style = Font(bold=True, size=11, color=COLORES['blanco'], name='Calibri')
     kpi_valor_style = Font(bold=True, size=24, color=COLORES['blanco'], name='Calibri')
@@ -168,14 +203,15 @@ async def procesar_kvk_por_dia(rutas_archivos):
     ws_dash['A1'].alignment = center
     ws_dash['A1'].border = border_thick
 
-    # Subheader con fechas
+    # Subheader
     ws_dash.merge_cells('A4:P4')
-    ws_dash['A4'] = f"Período: {nombres_archivos[0]} → {nombres_archivos[-1]} | Filtro: >{PODER_MINIMO/1e6:.0f}M Poder"
+    filtro_txt = f"Filtro: >{PODER_MINIMO/1e6:.0f}M" if PODER_MINIMO > 0 else "Todos los jugadores"
+    ws_dash['A4'] = f"Período: {nombres_archivos[0]} → {nombres_archivos[-1]} | {filtro_txt}"
     ws_dash['A4'].font = Font(size=11, italic=True, color=COLORES['azul_oscuro'])
     ws_dash['A4'].fill = PatternFill("solid", fgColor=COLORES['gris'])
     ws_dash['A4'].alignment = center
 
-    # SEMÁFORO + 7 KPIs
+    # SEMÁFORO + 8 KPIs
     ws_dash['A6'] = "ESTADO GENERAL"
     ws_dash['A6'].font = kpi_titulo_style
     ws_dash.merge_cells('A6:C6')
@@ -194,15 +230,16 @@ async def procesar_kvk_por_dia(rutas_archivos):
     ws_dash['A7'].border = border_thick
     ws_dash.merge_cells('A7:C9')
 
-    # KPIs - 7 métricas clave
+    # KPIs - Agregué distribución de eficiencia
     kpi_data = [
         ("MIEMBROS ACTIVOS", f"{total}", f"+{len(nuevos)} -{len(bajas)}", COLORES['azul_claro']),
         ("TASA CUMPLIMIENTO", f"{pct_cumple:.1f}%", f"{cumplen}/{total}", COLORES['verde'] if pct_cumple >= 50 else COLORES['rojo']),
         ("PODER GANADO", f"{poder_ganado/1e9:.2f}B", "Total", COLORES['verde']),
         ("PODER PERDIDO", f"{poder_perdido/1e9:.2f}B", "Total", COLORES['rojo']),
-        ("MÉRITOS DÍA", f"{meritos_totales/dia_actual/1e6:.1f}M", "Promedio", COLORES['naranja']),
-        ("FANTASMAS", f"{fantasmas}", f"{fantasmas/total*100:.0f}%", COLORES['amarillo']),
-        ("BALLENAS MUERTAS", f"{ballenas_muertas}", f"{ballenas_muertas/total*100:.0f}%", COLORES['rojo'])
+        ("MÉRITOS/DÍA", f"{meritos_totales/dia_actual/1e6:.1f}M", f"Meta: {MERITOS_ESPERADOS_POR_DIA/1e3:.0f}K", COLORES['naranja']),
+        ("EFICIENCIA MÉRITOS", f"{eficiencia_promedio:.1f}", "Méritos/1M Poder", COLORES['azul_claro']),
+        ("🏆 ÉLITE >12%", f"{elite}", f"{elite/total*100:.0f}%", COLORES['verde']),
+        ("❌ FUERA RANGO <5%", f"{fuera_rango}", f"{fuera_rango/total*100:.0f}%", COLORES['rojo'])
     ]
 
     col_start = 4
@@ -222,25 +259,25 @@ async def procesar_kvk_por_dia(rutas_archivos):
         ws_dash.cell(9, col).alignment = center
         ws_dash.merge_cells(start_row=9, start_column=col, end_row=9, end_column=col+1)
 
-    # TOP MOVERS - Con formato condicional
+    # TOP MOVERS
     ws_dash['A11'] = "📈 TOP 5 ESCALARON POSICIONES"
     ws_dash['A11'].font = header_style
     ws_dash['A11'].fill = PatternFill("solid", fgColor=COLORES['verde'])
     ws_dash.merge_cells('A11:D11')
 
-    headers = ['Jugador', '↑ Pos', 'Poder Ganado', 'Nuevo Poder']
+    headers = ['Jugador', '↑ Pos', 'Poder Ganado', 'Clasificación']
     for i, h in enumerate(headers):
         cell = ws_dash.cell(12, i+1, h)
         cell.font = Font(bold=True, color=COLORES['blanco'])
         cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
         cell.alignment = center
 
-    top_suben = df_activos[df_activos['cambio_rank'] > 0].nlargest(5, 'cambio_rank')[[col_nombre, 'cambio_rank', 'cambio_poder', 'poder_actual']]
+    top_suben = df_activos[df_activos['cambio_rank'] > 0].nlargest(5, 'cambio_rank')[[col_nombre, 'cambio_rank', 'cambio_poder', 'clasificacion_meritos']]
     for i, (_, row) in enumerate(top_suben.iterrows()):
         ws_dash.cell(13 + i, 1, str(row[col_nombre])[:25])
         ws_dash.cell(13 + i, 2, f"+{int(row['cambio_rank'])}")
         ws_dash.cell(13 + i, 3, f"{row['cambio_poder']/1e6:.1f}M")
-        ws_dash.cell(13 + i, 4, f"{row['poder_actual']/1e6:.1f}M")
+        ws_dash.cell(13 + i, 4, str(row['clasificacion_meritos']))
         for col in range(1, 5):
             ws_dash.cell(13 + i, col).alignment = Alignment(horizontal="center")
 
@@ -255,34 +292,117 @@ async def procesar_kvk_por_dia(rutas_archivos):
         cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
         cell.alignment = center
 
-    top_bajan = df_activos[df_activos['cambio_rank'] < 0].nsmallest(5, 'cambio_rank')[[col_nombre, 'cambio_rank', 'cambio_poder', 'poder_actual']]
+    top_bajan = df_activos[df_activos['cambio_rank'] < 0].nsmallest(5, 'cambio_rank')[[col_nombre, 'cambio_rank', 'cambio_poder', 'clasificacion_meritos']]
     for i, (_, row) in enumerate(top_bajan.iterrows()):
         ws_dash.cell(13 + i, 6, str(row[col_nombre])[:25])
         ws_dash.cell(13 + i, 7, f"{int(row['cambio_rank'])}")
         ws_dash.cell(13 + i, 8, f"{abs(row['cambio_poder'])/1e6:.1f}M")
-        ws_dash.cell(13 + i, 9, f"{row['poder_actual']/1e6:.1f}M")
+        ws_dash.cell(13 + i, 9, str(row['clasificacion_meritos']))
         for col in range(6, 10):
             ws_dash.cell(13 + i, col).alignment = Alignment(horizontal="center")
 
-    # GRÁFICA DE LÍNEA - Tendencia de cumplimiento
+    # Gráfica
     ws_dash['A20'] = "Cumplen"
-    ws_dash['B20'] = "No Cumplen"
-    ws_dash['A21'] = cumplen
+    ws_dash['A21'] = "No Cumplen"
+    ws_dash['B20'] = cumplen
     ws_dash['B21'] = total - cumplen
 
     pie = PieChart()
-    pie.add_data(Reference(ws_dash, min_col=1, max_col=2, min_row=21, max_row=21))
-    pie.set_categories(Reference(ws_dash, min_col=1, max_col=2, min_row=20, max_row=20))
+    pie.add_data(Reference(ws_dash, min_col=2, max_col=2, min_row=20, max_row=21))
+    pie.set_categories(Reference(ws_dash, min_col=1, max_col=1, min_row=20, max_row=21))
     pie.title = "Distribución de Cumplimiento"
     pie.height = 8
     pie.width = 12
     ws_dash.add_chart(pie, "A23")
 
-    # Anchos de columna
     for col in range(1, 17):
         ws_dash.column_dimensions[get_column_letter(col)].width = 14
 
-    # ===== HOJA 2: ALTAS Y BAJAS - MEJORADA =====
+    # ===== HOJA 2: RANKING GENERAL - LA QUE PEDISTE 🆕 =====
+    ws_ranking = wb.create_sheet("RANKING GENERAL")
+    ws_ranking.merge_cells('A1:K1')
+    ws_ranking['A1'] = f"🏆 RANKING GENERAL - EFICIENCIA DE MÉRITOS"
+    ws_ranking['A1'].font = titulo_style
+    ws_ranking['A1'].fill = PatternFill("solid", fgColor=COLORES['azul_oscuro'])
+    ws_ranking['A1'].alignment = center
+
+    ws_ranking.merge_cells('A2:K2')
+    ws_ranking['A2'] = f"Ordenado por % Méritos vs Poder Máximo | Rango Élite: >12% | Normal: 10-12% | En Rango: 8-10% | Bajo: 5-8% | Fuera: <5%"
+    ws_ranking['A2'].font = Font(size=10, italic=True, color=COLORES['azul_oscuro'])
+    ws_ranking['A2'].fill = PatternFill("solid", fgColor=COLORES['gris'])
+    ws_ranking['A2'].alignment = center
+
+    # Ordenar por % Méritos vs Poder (de mayor a menor)
+    df_ranking = df_activos.sort_values('pct_meritos_vs_poder', ascending=False).copy()
+    df_ranking['posicion'] = range(1, len(df_ranking) + 1)
+
+    # Headers
+    headers_ranking = ['Pos', 'Jugador', 'Poder Máx', 'Méritos Ganados', '% Mér/Poder', 'Mér/Semana', 'Efic. Méritos', 'Clasificación', 'Estado', 'Cambio Rank']
+    for i, h in enumerate(headers_ranking):
+        cell = ws_ranking.cell(4, i+1, h)
+        cell.font = header_style
+        cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
+        cell.alignment = center
+        cell.border = border_thick
+
+    # Datos
+    row_start = 5
+    for idx, (_, row) in enumerate(df_ranking.iterrows()):
+        ws_ranking.cell(row_start + idx, 1, int(row['posicion']))
+        ws_ranking.cell(row_start + idx, 2, str(row[col_nombre])[:30])
+        ws_ranking.cell(row_start + idx, 3, f"{row['poder_maximo']:,.0f}")
+        ws_ranking.cell(row_start + idx, 4, f"{row['meritos_ganados']:,.0f}")
+        ws_ranking.cell(row_start + idx, 5, f"{row['pct_meritos_vs_poder']:.2f}%")
+        ws_ranking.cell(row_start + idx, 6, f"{row['meritos_por_semana']:,.0f}")
+        ws_ranking.cell(row_start + idx, 7, f"{row['eficiencia_meritos']:.2f}")
+        ws_ranking.cell(row_start + idx, 8, str(row['clasificacion_meritos']))
+        ws_ranking.cell(row_start + idx, 9, str(row['estado']))
+        ws_ranking.cell(row_start + idx, 10, f"{int(row['cambio_rank']):+d}" if pd.notna(row['cambio_rank']) else "N/A")
+
+        # Formato números
+        ws_ranking.cell(row_start + idx, 3).number_format = '#,##0'
+        ws_ranking.cell(row_start + idx, 4).number_format = '#,##0'
+        ws_ranking.cell(row_start + idx, 5).number_format = '0.00%'
+        ws_ranking.cell(row_start + idx, 6).number_format = '#,##0'
+        ws_ranking.cell(row_start + idx, 7).number_format = '0.00'
+
+        # Color por clasificación
+        clasif = str(row['clasificacion_meritos'])
+        if '🏆' in clasif: # Élite
+            color_fill = 'FFD700' # Dorado
+        elif '✅' in clasif: # Normal
+            color_fill = 'C6EFCE' # Verde claro
+        elif '🟡' in clasif: # En Rango
+            color_fill = 'FFF2CC' # Amarillo claro
+        elif '⚠️' in clasif: # Bajo
+            color_fill = 'FFE699' # Naranja claro
+        else: # Fuera de Rango
+            color_fill = 'FFC7CE' # Rojo claro
+
+        for col in range(1, 11):
+            ws_ranking.cell(row_start + idx, col).fill = PatternFill("solid", fgColor=color_fill)
+            ws_ranking.cell(row_start + idx, col).alignment = Alignment(horizontal="center")
+
+    # Barra de datos en % Mér/Poder
+    ws_ranking.conditional_formatting.add(
+        f'E{row_start}:E{row_start + len(df_ranking) - 1}',
+        DataBarRule(start_type='num', start_value=0, end_type='max',
+                   color=COLORES['verde'], showValue=True)
+    )
+
+    # Iconos en Eficiencia
+    ws_ranking.conditional_formatting.add(
+        f'G{row_start}:G{row_start + len(df_ranking) - 1}',
+        IconSetRule('3Stars', 'num', [0, 5, 12], showValue=True)
+    )
+
+    ws_ranking.auto_filter.ref = f"A4:J{row_start + len(df_ranking) - 1}"
+    ws_ranking.freeze_panes = 'A5'
+
+    for col in range(1, 11):
+        ws_ranking.column_dimensions[get_column_letter(col)].width = 18
+
+    # HOJA 3: MOVIMIENTOS
     ws_mov = wb.create_sheet("MOVIMIENTOS")
     ws_mov.merge_cells('A1:F1')
     ws_mov['A1'] = f"🔄 MOVIMIENTOS DEL REINO | DÍA {dia_actual}"
@@ -290,13 +410,13 @@ async def procesar_kvk_por_dia(rutas_archivos):
     ws_mov['A1'].fill = PatternFill("solid", fgColor=COLORES['azul_oscuro'])
     ws_mov['A1'].alignment = center
 
-    # ALTAS con más datos
+    # ALTAS
     ws_mov['A3'] = f"🆕 NUEVOS INGRESOS ({len(nuevos)})"
     ws_mov['A3'].font = header_style
     ws_mov['A3'].fill = PatternFill("solid", fgColor=COLORES['verde'])
     ws_mov.merge_cells('A3:C3')
 
-    headers_altas = ['Jugador', 'Poder', 'Rank Actual']
+    headers_altas = ['Jugador', 'Poder', 'Clasificación Méritos']
     for i, h in enumerate(headers_altas):
         cell = ws_mov.cell(4, i+1, h)
         cell.font = Font(bold=True, color=COLORES['blanco'])
@@ -308,7 +428,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     for _, jugador in df_nuevos.iterrows():
         ws_mov.cell(row, 1, str(jugador[col_nombre])[:30])
         ws_mov.cell(row, 2, f"{jugador['poder_actual']:,.0f}")
-        ws_mov.cell(row, 3, f"#{int(jugador['rank_actual'])}" if pd.notna(jugador['rank_actual']) else "N/A")
+        ws_mov.cell(row, 3, str(jugador['clasificacion_meritos']))
         ws_mov.cell(row, 2).number_format = '#,##0'
         row += 1
 
@@ -337,158 +457,39 @@ async def procesar_kvk_por_dia(rutas_archivos):
     for col in range(1, 8):
         ws_mov.column_dimensions[get_column_letter(col)].width = 20
 
-    # ===== HOJA 3: TABLA COMPLETA CON CONDICIONALES =====
+    # HOJA 4: DETALLE COMPLETO
     ws_tabla = wb.create_sheet("DETALLE COMPLETO")
-    ws_tabla.merge_cells('A1:J1')
-    ws_tabla['A1'] = f"📊 DETALLE DE TODOS LOS JUGADORES (>{PODER_MINIMO/1e6:.0f}M)"
+    ws_tabla.merge_cells('A1:N1')
+    ws_tabla['A1'] = f"📊 DETALLE DE TODOS LOS JUGADORES"
     ws_tabla['A1'].font = titulo_style
     ws_tabla['A1'].fill = PatternFill("solid", fgColor=COLORES['azul_oscuro'])
     ws_tabla['A1'].alignment = center
 
-    df_export = df[[col_nombre, 'poder_actual', 'poder_inicial', 'cambio_poder', 'cambio_poder_pct', 'meta_dia', 'porcentaje_avance', 'meritos_ganados', 'estado', 'cambio_rank']].copy()
-    df_export.columns = ['Nombre', 'Poder Actual', 'Poder Inicial', 'Cambio Poder', '% Cambio', 'Meta Día 7', '% vs Meta', 'Méritos Ganados', 'Estado', 'Cambio Rank']
+    df_export = df[[col_nombre, 'poder_actual', 'poder_inicial', 'cambio_poder', 'cambio_poder_pct', 'meta_dia', 'porcentaje_avance', 'meritos_ganados', 'eficiencia_meritos', 'pct_meritos_vs_poder', 'clasificacion_meritos', 'pct_meta_meritos', 'estado', 'cambio_rank']].copy()
+    df_export.columns = ['Nombre', 'Poder Actual', 'Poder Inicial', 'Cambio Poder', '% Cambio', 'Meta Día 7', '% vs Meta', 'Méritos Ganados', 'Efic. Méritos', '% Mér/Poder', 'Clasif. Méritos', '% Meta Méritos', 'Estado', 'Cambio Rank']
 
-    # Headers
-    for col_idx, header in enumerate(df_export.columns, 1):
-        cell = ws_tabla.cell(3, col_idx, header)
+    for r in dataframe_to_rows(df_export, index=False, header=True):
+        ws_tabla.append(r)
+
+    for cell in ws_tabla[2]:
         cell.font = header_style
         cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
         cell.alignment = center
         cell.border = border_thick
 
-    # Datos
-    for r_idx, row in enumerate(dataframe_to_rows(df_export, index=False, header=False), 4):
-        for c_idx, value in enumerate(row, 1):
-            cell = ws_tabla.cell(r_idx, c_idx, value)
-            cell.alignment = Alignment(horizontal="center")
+    for row in ws_tabla.iter_rows(min_row=3, max_row=len(df_export)+2):
+        row[1].number_format = '#,##0'
+        row[2].number_format = '#,##0'
+        row[3].number_format = '#,##0'
+        row[4].number_format = '0.0%'
+        row[5].number_format = '#,##0'
+        row[6].number_format = '0.0%'
+        row[7].number_format = '#,##0'
+        row[8].number_format = '0.00'
+        row[9].number_format = '0.00%'
+        row[11].number_format = '0.0%'
+        row[13].number_format = '0'
 
-            # Formato números
-            if c_idx in [2, 3, 4, 6, 8]:
-                cell.number_format = '#,##0'
-            elif c_idx in [5, 7]:
-                cell.number_format = '0.0%'
-            elif c_idx == 10:
-                cell.number_format = '0'
-
-    # Formato condicional - Barra de datos en Cambio Poder
+    # Formato condicional
     ws_tabla.conditional_formatting.add(
-        f'D4:D{len(df_export)+3}',
-        DataBarRule(start_type='num', start_value=-10000000, end_type='num', end_value=10000000,
-                   color=COLORES['azul_claro'], showValue=True)
-    )
-
-    # Iconos en % vs Meta
-    ws_tabla.conditional_formatting.add(
-        f'G4:G{len(df_export)+3}',
-        IconSetRule('3Arrows', 'percent', [0, 33, 67], showValue=True)
-    )
-
-    # Colores por estado
-    for row in ws_tabla.iter_rows(min_row=4, max_row=len(df_export)+3):
-        estado = str(row[8].value)
-        if '🟢' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='E2EFDA')
-        elif '🔴' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='FFC7CE')
-        elif '👻' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='FFF2CC')
-        elif '⚠️' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='FFE699')
-        elif '🆕' in estado:
-            for cell in row: cell.fill = PatternFill("solid", fgColor='C6E0B4')
-
-    ws_tabla.auto_filter.ref = f"A3:J{len(df_export)+3}"
-    ws_tabla.freeze_panes = 'A4'
-
-    for col in range(1, 11):
-        ws_tabla.column_dimensions[get_column_letter(col)].width = 18
-
-    # ===== HOJA 4-6: CATEGORÍAS ESPECÍFICAS =====
-    hojas_categorias = [
-        ("FANTASMAS", df_activos[df_activos['estado'] == '👻 Fantasma'], 'meritos_ganados', 'asc'),
-        ("BALLENAS MUERTAS", df_activos[df_activos['estado'] == '🔴 Ballena Muerta'], 'cambio_poder', 'asc'),
-        ("RIESGO KICK", df_activos[df_activos['estado'] == '⚠️ Riesgo Kick'], 'porcentaje_avance', 'asc')
-    ]
-
-    for nombre_hoja, df_cat, sort_col, orden in hojas_categorias:
-        ws = wb.create_sheet(nombre_hoja)
-        ws.merge_cells('A1:E1')
-        ws['A1'] = f"⚠️ {nombre_hoja} - {len(df_cat)} JUGADORES"
-        ws['A1'].font = titulo_style
-        ws['A1'].fill = PatternFill("solid", fgColor=COLORES['rojo'])
-        ws['A1'].alignment = center
-
-        df_cat_export = df_cat[[col_nombre, 'poder_actual', 'cambio_poder', 'porcentaje_avance', 'meritos_ganados']].copy()
-        df_cat_export = df_cat_export.sort_values(sort_col, ascending=(orden=='asc'))
-        df_cat_export.columns = ['Nombre', 'Poder Actual', 'Cambio Poder', '% vs Meta', 'Méritos Ganados']
-
-        for r in dataframe_to_rows(df_cat_export, index=False, header=True):
-            ws.append(r)
-
-        for cell in ws[2]:
-            cell.font = header_style
-            cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
-            cell.alignment = center
-
-        for col in range(1, 6):
-            ws.column_dimensions[get_column_letter(col)].width = 20
-
-    # Guardar
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-
-    # Embed PRO
-    color = int(COLORES['rojo'], 16) if pct_cumple < 40 else int(COLORES['amarillo'], 16) if pct_cumple < 70 else int(COLORES['verde'], 16)
-    embed = discord.Embed(
-        title=f"⚔️ REPORTE EJECUTIVO KVK | DÍA {dia_actual}",
-        description=f"**{estado_txt}** | Cumplimiento: {pct_cumple:.1f}% | Filtro: >{PODER_MINIMO/1e6:.0f}M",
-        color=color
-    )
-
-    embed.add_field(
-        name="📊 RESUMEN EJECUTIVO",
-        value=f"👥 **{total}** Miembros Activos\n🆕 **{len(nuevos)}** Nuevos\n❌ **{len(bajas)}** Bajas\n🟢 **{cumplen}** Cumplen Meta ({pct_cumple:.0f}%)",
-        inline=True
-    )
-
-    embed.add_field(
-        name="💰 BALANCE DE PODER",
-        value=f"📈 **+{poder_ganado/1e9:.2f}B** Ganado\n📉 **-{poder_perdido/1e9:.2f}B** Perdido\n⚖️ **{poder_ganado-poder_perdido:+.2f}B** Neto",
-        inline=True
-    )
-
-    embed.add_field(
-        name="⚠️ ALERTAS CRÍTICAS",
-        value=f"👻 **{fantasmas}** Fantasmas\n🐋 **{ballenas_muertas}** Ballenas Muertas\n⚠️ **{len(df_activos[df_activos['estado'] == '⚠️ Riesgo Kick'])}** Riesgo Kick",
-        inline=True
-    )
-
-    if len(df_activos) > 0:
-        top_3 = df_activos.nlargest(3, 'cambio_poder')[[col_nombre, 'cambio_poder']]
-        embed.add_field(
-            name="🏆 TOP 3 CRECIMIENTO",
-            value="\n".join([f"{i+1}. {row[col_nombre][:20]} +{row['cambio_poder']/1e6:.1f}M"
-                            for i, (_, row) in enumerate(top_3.iterrows())]),
-            inline=False
-        )
-
-    embed.add_field(
-        name="📁 ARCHIVO EXCEL PROFESIONAL",
-        value="✅ Executive Dashboard\n✅ Movimientos (Altas/Bajas)\n✅ Detalle Completo con Condicionales\n✅ Fantasmas\n✅ Ballenas Muertas\n✅ Riesgo Kick",
-        inline=False
-    )
-
-    embed.set_footer(text=f"Día {dia_actual}/{dia_actual} | Méritos Totales: {meritos_totales/1e6:.1f}M | Filtro: >{PODER_MINIMO/1e6:.0f}M")
-    embed.timestamp = discord.utils.utcnow()
-
-    archivo = discord.File(buffer, filename=f"KVK_Dia{dia_actual}_EXECUTIVE.xlsx")
-    return embed, archivo
-
-def detectar_columna(df, posibles):
-    for col in df.columns:
-        if any(p in str(col).lower() for p in posibles):
-            return col
-    raise ValueError(f"No encontré columna. Buscaba: {posibles}. Tengo: {list(df.columns)}")
-
-from openpyxl.utils.dataframe import dataframe_to_rows
+        f'D3:D{len(df_export)+
