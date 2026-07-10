@@ -7,6 +7,10 @@ from openpyxl.utils import get_column_letter
 import io
 import zipfile
 
+# ===== CONFIG =====
+PODER_MINIMO = 30_000_000 # Ignorar cuentas menores a 30M
+# ==================
+
 async def procesar_kvk_por_dia(rutas_archivos):
     # Soporte para ZIP
     archivos_excel = []
@@ -41,15 +45,18 @@ async def procesar_kvk_por_dia(rutas_archivos):
     col_poder = detectar_columna(df_final, ['poder', 'power'])
     col_meritos = detectar_columna(df_final, ['meritos', 'méritos', 'merits', 'honor'])
 
+    # ===== FILTRAR GRANJAS < 30M =====
+    df_inicial = df_inicial[df_inicial[col_poder] >= PODER_MINIMO].copy()
+    df_final = df_final[df_final[col_poder] >= PODER_MINIMO].copy()
+
     # ===== DETECTAR ALTAS Y BAJAS =====
     jugadores_inicial = set(df_inicial[col_nombre].dropna().astype(str))
     jugadores_final = set(df_final[col_nombre].dropna().astype(str))
 
     nuevos = jugadores_final - jugadores_inicial # Altas
     bajas = jugadores_inicial - jugadores_final # Bajas
-    activos = jugadores_inicial & jugadores_final # Siguen en el reino
 
-    # Merge y cálculos - outer join para no perder a nadie
+    # Merge y cálculos - CORREGIDO
     df = df_final.merge(df_inicial, on=col_nombre, suffixes=('_final', '_inicial'), how='outer')
 
     # Limpiar números - quitar comas, M, K, etc
@@ -58,12 +65,16 @@ async def procesar_kvk_por_dia(rutas_archivos):
             df[col] = df[col].astype(str).str.replace(',', '').str.replace('M', 'e6').str.replace('K', 'e3')
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
+    # 👇 AQUÍ ESTABA EL ERROR - NOMBRES CORREGIDOS
     df['poder_actual'] = df[f'{col_poder}_final'].fillna(0)
     df['poder_inicial'] = df[f'{col_poder}_inicial'].fillna(0)
     df['cambio_poder'] = df['poder_actual'] - df['poder_inicial']
     df['meta_dia'] = df['poder_inicial'] * (1 + 0.017 * dia_actual)
     df['porcentaje_avance'] = ((df['poder_actual'] / df['meta_dia'].replace(0, 1)) - 1) * 100
     df['meritos_ganados'] = df[f'{col_meritos}_final'].fillna(0) - df[f'{col_meritos}_inicial'].fillna(0)
+
+    # Filtrar granjas del resultado final también
+    df = df[df['poder_actual'] >= PODER_MINIMO].copy()
 
     # Estados con emojis claros
     df['estado'] = '🟡 Normal'
@@ -76,15 +87,15 @@ async def procesar_kvk_por_dia(rutas_archivos):
 
     # Rankings - cambios de posición
     df_final_rank = df_final.copy()
-    df_final_rank['rank_actual'] = df_final_rank[f'{col_poder}_final'].rank(ascending=False, method='min')
+    df_final_rank['rank_actual'] = df_final_rank[col_poder].rank(ascending=False, method='min')
     df_inicial_rank = df_inicial.copy()
-    df_inicial_rank['rank_inicial'] = df_inicial_rank[f'{col_poder}_inicial'].rank(ascending=False, method='min')
+    df_inicial_rank['rank_inicial'] = df_inicial_rank[col_poder].rank(ascending=False, method='min')
 
     df = df.merge(df_final_rank[[col_nombre, 'rank_actual']], on=col_nombre, how='left')
     df = df.merge(df_inicial_rank[[col_nombre, 'rank_inicial']], on=col_nombre, how='left')
-    df['cambio_rank'] = df['rank_inicial'] - df['rank_actual'] # Positivo = subió
+    df['cambio_rank'] = df['rank_inicial'].fillna(df['rank_actual']) - df['rank_actual']
 
-    # Métricas - solo jugadores activos
+    # Métricas - solo jugadores activos y >= 30M
     df_activos = df[df['estado']!= '❌ BAJA'].copy()
     total = len(df_activos)
     cumplen = len(df_activos[df_activos['porcentaje_avance'] >= 0])
@@ -108,8 +119,6 @@ async def procesar_kvk_por_dia(rutas_archivos):
     amarillo_fill = PatternFill("solid", fgColor="FFC000")
     naranja_fill = PatternFill("solid", fgColor="FF6B35")
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    border_thin = Border(left=Side(style='thin'), right=Side(style='thin'),
-                         top=Side(style='thin'), bottom=Side(style='thin'))
 
     # Título Dashboard
     ws_dash.merge_cells('A1:N2')
@@ -120,9 +129,9 @@ async def procesar_kvk_por_dia(rutas_archivos):
 
     # ===== RESUMEN EJECUTIVO - 1 LÍNEA =====
     ws_dash.merge_cells('A4:N4')
-    resumen = f"📊 {total} ACTIVOS | 🆕 {len(nuevos)} NUEVOS | ❌ {len(bajas)} BAJAS | 🟢 {pct_cumple:.0f}% CUMPLE | 🔴 {poder_perdido/1e9:.1f}B PERDIDO"
+    resumen = f"📊 {total} ACTIVOS | 🆕 {len(nuevos)} NUEVOS | ❌ {len(bajas)} BAJAS | 🟢 {pct_cumple:.0f}% CUMPLE | 🔴 {poder_perdido/1e9:.1f}B PERDIDO | 💎 FILTRO: >30M"
     ws_dash['A4'] = resumen
-    ws_dash['A4'].font = Font(bold=True, size=12)
+    ws_dash['A4'].font = Font(bold=True, size=11)
     ws_dash['A4'].fill = PatternFill("solid", fgColor="E7E6E6")
     ws_dash['A4'].alignment = center
 
@@ -146,7 +155,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
 
     # 6 KPIs principales
     kpi_data = [
-        ("ACTIVOS", f"{total}", "Jugadores", azul_fill),
+        ("ACTIVOS", f"{total}", ">30M", azul_fill),
         ("CUMPLEN", f"{cumplen}/{total}", f"{pct_cumple:.0f}%", verde_fill if pct_cumple >= 50 else rojo_fill),
         ("NUEVOS", f"{len(nuevos)}", "Altas", naranja_fill),
         ("BAJAS", f"{len(bajas)}", "Salieron", rojo_fill),
@@ -173,7 +182,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     ws_dash['A10'].fill = verde_fill
     ws_dash.merge_cells('A10:D10')
 
-    top_suben = df_activos.nlargest(5, 'cambio_rank')[[col_nombre, 'cambio_rank', 'cambio_poder']]
+    top_suben = df_activos[df_activos['cambio_rank'] > 0].nlargest(5, 'cambio_rank')[[col_nombre, 'cambio_rank', 'cambio_poder']]
     row_start = 11
     ws_dash.cell(row_start, 1, "Jugador").font = Font(bold=True)
     ws_dash.cell(row_start, 2, "↑ Pos").font = Font(bold=True)
@@ -189,7 +198,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     ws_dash['F10'].fill = rojo_fill
     ws_dash.merge_cells('F10:I10')
 
-    top_bajan = df_activos.nsmallest(5, 'cambio_rank')[[col_nombre, 'cambio_rank', 'cambio_poder']]
+    top_bajan = df_activos[df_activos['cambio_rank'] < 0].nsmallest(5, 'cambio_rank')[[col_nombre, 'cambio_rank', 'cambio_poder']]
     ws_dash.cell(row_start, 6, "Jugador").font = Font(bold=True)
     ws_dash.cell(row_start, 7, "↓ Pos").font = Font(bold=True)
     ws_dash.cell(row_start, 8, "Poder Perdido").font = Font(bold=True)
@@ -210,7 +219,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     data_pie = Reference(ws_dash, min_col=2, min_row=18, max_row=19)
     pie.add_data(data_pie, titles_from_data=False)
     pie.set_categories(labels)
-    pie.title = "Cumplimiento de Meta"
+    pie.title = "Cumplimiento de Meta (>30M)"
     pie.height = 8
     pie.width = 12
     ws_dash.add_chart(pie, "A21")
@@ -221,8 +230,8 @@ async def procesar_kvk_por_dia(rutas_archivos):
 
     # ===== HOJA 2: ALTAS Y BAJAS =====
     ws_mov = wb.create_sheet("ALTAS Y BAJAS")
-    ws_mov.merge_cells('A1:D1')
-    ws_mov['A1'] = f"🔄 MOVIMIENTOS DEL REINO - DÍA {dia_actual}"
+    ws_mov.merge_cells('A1:E1')
+    ws_mov['A1'] = f"🔄 MOVIMIENTOS DEL REINO - DÍA {dia_actual} (FILTRO: >30M)"
     ws_mov['A1'].font = Font(bold=True, size=16, color="FFFFFF")
     ws_mov['A1'].fill = azul_fill
     ws_mov['A1'].alignment = center
@@ -269,7 +278,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
         ws_mov.column_dimensions[get_column_letter(col)].width = 20
 
     # ===== HOJA 3: TABLA COMPLETA =====
-    ws_tabla = wb.create_sheet("TODOS LOS JUGADORES")
+    ws_tabla = wb.create_sheet("JUGADORES >30M")
     df_export = df[[col_nombre, 'poder_actual', 'poder_inicial', 'cambio_poder', 'meta_dia', 'porcentaje_avance', 'meritos_ganados', 'estado', 'cambio_rank']].copy()
     df_export.columns = ['Nombre', 'Poder Actual', 'Poder Día 1', 'Cambio Poder', 'Meta Día 7', '% vs Meta', 'Méritos Ganados', 'Estado', 'Cambio Rank']
 
@@ -338,11 +347,11 @@ async def procesar_kvk_por_dia(rutas_archivos):
     wb.save(buffer)
     buffer.seek(0)
 
-    # Embed DIRECTO - sin tanta paja
+    # Embed DIRECTO - con filtro
     color = 0xFF0000 if pct_cumple < 40 else 0xF1C40F if pct_cumple < 70 else 0x00FF00
     embed = discord.Embed(
         title=f"⚔️ KVK DÍA {dia_actual} | REINO #127",
-        description=f"**{estado_txt}** | {cumplen}/{total} cumplen meta",
+        description=f"**{estado_txt}** | {cumplen}/{total} cumplen meta | Filtro: >30M",
         color=color
     )
 
@@ -364,27 +373,28 @@ async def procesar_kvk_por_dia(rutas_archivos):
         inline=True
     )
 
-    embed.add_field(
-        name="📈 TOP GANADORES",
-        value="\n".join([f"{i+1}. {row[col_nombre][:15]} +{row['cambio_poder']/1e6:.0f}M"
-                        for i, (_, row) in enumerate(df_activos.nlargest(3, 'cambio_poder')[[col_nombre, 'cambio_poder']].iterrows())]),
-        inline=True
-    )
+    if len(df_activos) > 0:
+        embed.add_field(
+            name="📈 TOP GANADORES",
+            value="\n".join([f"{i+1}. {row[col_nombre][:15]} +{row['cambio_poder']/1e6:.0f}M"
+                            for i, (_, row) in enumerate(df_activos.nlargest(3, 'cambio_poder')[[col_nombre, 'cambio_poder']].iterrows())]),
+            inline=True
+        )
 
-    embed.add_field(
-        name="📉 TOP PERDEDORES",
-        value="\n".join([f"{i+1}. {row[col_nombre][:15]} {row['cambio_poder']/1e6:.0f}M"
-                        for i, (_, row) in enumerate(df_activos.nsmallest(3, 'cambio_poder')[[col_nombre, 'cambio_poder']].iterrows())]),
-        inline=True
-    )
+        embed.add_field(
+            name="📉 TOP PERDEDORES",
+            value="\n".join([f"{i+1}. {row[col_nombre][:15]} {row['cambio_poder']/1e6:.0f}M"
+                            for i, (_, row) in enumerate(df_activos.nsmallest(3, 'cambio_poder')[[col_nombre, 'cambio_poder']].iterrows())]),
+            inline=True
+        )
 
     embed.add_field(
         name="📁 HOJAS INCLUIDAS",
-        value="✅ Dashboard\n✅ Altas/Bajas\n✅ Todos los Jugadores\n✅ Fantasmas\n✅ Ballenas Muertas\n✅ Riesgo Kick",
+        value="✅ Dashboard\n✅ Altas/Bajas\n✅ Jugadores >30M\n✅ Fantasmas\n✅ Ballenas Muertas\n✅ Riesgo Kick",
         inline=False
     )
 
-    embed.set_footer(text=f"Día {dia_actual}/{dia_actual} KVK | Altas: {len(nuevos)} | Bajas: {len(bajas)}")
+    embed.set_footer(text=f"Día {dia_actual}/{dia_actual} KVK | Granjas <30M ignoradas | Altas: {len(nuevos)} | Bajas: {len(bajas)}")
 
     archivo = discord.File(buffer, filename=f"KVK_Dia{dia_actual}_PRO.xlsx")
     return embed, archivo
