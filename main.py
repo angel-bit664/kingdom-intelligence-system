@@ -11,7 +11,7 @@ import pandas as pd
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
 ID_CANAL_ANUNCIOS = 1358237524249542751 # Para meta alerta y meta evento
-ID_CANAL_ACTIVATE = 1358237524799131662 # Solo para meta activate
+ID_CANAL_ACTIVATE = 1358237524799131662 # Para meta activate y meta cumpleaños
 # ==================
 
 intents = discord.Intents.default()
@@ -28,7 +28,7 @@ async def on_ready():
     print(f'✅ ID del bot: {client.user.id}')
     print(f'✅ Listo en {len(client.guilds)} servidores')
     print(f'✅ Canal anuncios: {ID_CANAL_ANUNCIOS}')
-    print(f'✅ Canal activate: {ID_CANAL_ACTIVATE}')
+    print(f'✅ Canal activate/cumple: {ID_CANAL_ACTIVATE}')
 
 @client.event
 async def on_message(message):
@@ -124,6 +124,57 @@ Código emitido por: {autor_nombre}
 
         return
 
+    # ===== META CUMPLEAÑOS - ESTILO ACTIVATE BILINGÜE =====
+    if peticion.lower().startswith("cumpleaños") or peticion.lower().startswith("cumpleanos"):
+        if not message.mentions:
+            await message.channel.send("❌ **Debes mencionar al usuario**\n\nEjemplo: `meta cumpleaños @Juan` o `meta cumpleaños @Juan Que la pases increíble`")
+            return
+
+        usuario_cumple = message.mentions[0]
+
+        # Mensaje personalizado opcional - todo después de la mención
+        partes = peticion.split()
+        mensaje_es = ""
+        if len(partes) > 2: # meta cumpleaños @usuario mensaje...
+            mensaje_es = " ".join(partes[2:]).strip()
+
+        if not mensaje_es:
+            mensaje_es = "Que tengas un día increíble lleno de alegría. Te deseamos lo mejor hoy y siempre."
+
+        try:
+            mensaje_en = GoogleTranslator(source='es', target='en').translate(mensaje_es)
+        except:
+            mensaje_en = "Translation failed"
+
+        descripcion = f"""🎉 *FELIZ CUMPLEAÑOS* 🎉
+🎂 *CELEBRACIÓN ESPECIAL / SPECIAL CELEBRATION* 🎂
+
+🎯 *CUMPLEAÑERO / BIRTHDAY:* *{usuario_cumple.mention}*
+
+🎊 *ESTADO / STATUS:* DÍA DE FIESTA - MODO CELEBRACIÓN ACTIVADO
+CELEBRATION MODE - PARTY TIME
+
+🎁 *MENSAJE / MESSAGE:*
+   🇲🇽 {mensaje_es}
+   🇺🇸 {mensaje_en}
+
+⚔️ *LA FAMILIA TFT TE CELEBRA*
+TFT FAMILY CELEBRATES YOU
+
+Felicitación enviada por: Todo el grupo de Oficiales
+🎈 QUE LA PASES INCREÍBLE / HAVE AN AMAZING TIME"""
+
+        embed = discord.Embed(description=descripcion, color=0xFFD700) # Dorado
+
+        canal_cumple = client.get_channel(ID_CANAL_ACTIVATE)
+        if not canal_cumple:
+            await message.channel.send(f"❌ **No encontré el canal**\nID configurado: {ID_CANAL_ACTIVATE}")
+            return
+
+        await canal_cumple.send(content=usuario_cumple.mention, embed=embed)
+        await message.delete()
+        return
+
     # ===== META ALERTA =====
     if peticion.lower().startswith("alerta"):
         texto_es = peticion[6:].strip()
@@ -192,7 +243,7 @@ Código emitido por: {autor_nombre}
         await message.channel.send("❌ **No encontré anuncio para editar**")
         return
 
-    # ===== META LIMPIA - AHORA CON CANTIDAD =====
+    # ===== META LIMPIA - CON DEBUG Y VALIDACIÓN =====
     if peticion.lower().startswith("limpia"):
         args = peticion.split()
         cantidad = 50 # default
@@ -200,17 +251,30 @@ Código emitido por: {autor_nombre}
         if len(args) > 1 and args[1].isdigit():
             cantidad = int(args[1])
             if cantidad > 100:
-                await message.channel.send("❌ **Máximo 100 mensajes** por seguridad de Discord")
+                await message.channel.send("❌ **Máximo 100 mensajes** por Discord API")
                 return
             if cantidad < 1:
                 await message.channel.send("❌ **Mínimo 1 mensaje**")
                 return
 
+        perms = message.channel.permissions_for(message.guild.me)
+        if not perms.manage_messages:
+            await message.channel.send("❌ **No tengo permiso 'Gestionar Mensajes'**\nVe a Server Settings → Roles → Bot → Activa 'Manage Messages'")
+            return
+
         def es_bot_o_meta(m):
             return m.author == client.user or m.content.lower().startswith("meta ")
 
-        borrados = await message.channel.purge(limit=cantidad, check=es_bot_o_meta)
-        await message.channel.send(f"🧹 **Limpié {len(borrados)} mensajes** del bot y comandos", delete_after=5)
+        try:
+            borrados = await message.channel.purge(limit=cantidad, check=es_bot_o_meta)
+            if len(borrados) == 0:
+                await message.channel.send("⚠️ **No encontré mensajes del bot para borrar** en los últimos 100", delete_after=5)
+            else:
+                await message.channel.send(f"🧹 **Limpié {len(borrados)} mensajes**", delete_after=5)
+        except discord.Forbidden:
+            await message.channel.send("❌ **Discord me bloqueó**. Revisa permisos del canal también")
+        except discord.HTTPException:
+            await message.channel.send("❌ **Error:** Solo puedo borrar mensajes de menos de 14 días")
         return
 
     # ===== META PING =====
@@ -223,6 +287,7 @@ Código emitido por: {autor_nombre}
     if peticion.lower() == "ayuda":
         embed = discord.Embed(title="🤖 COMANDOS DISPONIBLES - META BOT", color=0x9B59B6)
         embed.add_field(name="🚨 meta activate @usuario", value="Código de emergencia individual", inline=False)
+        embed.add_field(name="🎉 meta cumpleaños @usuario", value="Felicitación de cumpleaños bilingüe", inline=False)
         embed.add_field(name="📢 meta alerta <texto>", value="Alerta general bilingüe para @everyone", inline=False)
         embed.add_field(name="⚔️ meta evento <texto>", value="Evento oficial con reacción 👍", inline=False)
         embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio enviado", inline=False)
@@ -338,7 +403,10 @@ Código emitido por: {autor_nombre}
 
         try:
             embed, archivo_excel = await procesar_kvk_por_dia(rutas_archivos)
-            await message.channel.send(embed=embed, file=discord.File(archivo_excel))
+            if isinstance(archivo_excel, discord.File):
+                await message.channel.send(embed=embed, file=archivo_excel)
+            else:
+                await message.channel.send(embed=embed, file=discord.File(archivo_excel))
             await msg_procesando.delete()
         except Exception as e:
             await msg_procesando.edit(content=f"❌ **Error:** {str(e)[:150]}")
