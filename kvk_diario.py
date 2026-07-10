@@ -2,220 +2,313 @@ import pandas as pd
 import discord
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.chart import PieChart, Reference
+from openpyxl.chart import BarChart, PieChart, Reference
 from openpyxl.utils import get_column_letter
 import io
+import zipfile
 
 async def procesar_kvk_por_dia(rutas_archivos):
-    # Leer todos los archivos y ordenar por día
-    dfs = []
-    for ruta in sorted(rutas_archivos):
-        df = pd.read_excel(ruta)
-        # Normalizar nombres de columnas comunes
-        df.columns = df.columns.str.lower().str.strip()
-        dfs.append(df)
+    # Soporte para ZIP
+    archivos_excel = []
+    for ruta in rutas_archivos:
+        if ruta.endswith('.zip'):
+            with zipfile.ZipFile(ruta, 'r') as zip_ref:
+                for name in zip_ref.namelist():
+                    if name.endswith('.xlsx'):
+                        zip_ref.extract(name, '/tmp/')
+                        archivos_excel.append(f'/tmp/{name}')
+        elif ruta.endswith('.xlsx'):
+            archivos_excel.append(ruta)
 
-    if len(dfs) < 2:
-        raise ValueError("Necesitas mínimo 2 días de KVK")
+    if len(archivos_excel) < 2:
+        raise ValueError("Necesitas mínimo 2 días de KVK en Excel o 1 ZIP con varios")
+
+    # Leer y ordenar por nombre de archivo
+    dfs = []
+    for ruta in sorted(archivos_excel):
+        df = pd.read_excel(ruta)
+        df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
+        dfs.append(df)
 
     df_inicial = dfs[0]
     df_final = dfs[-1]
     dia_actual = len(dfs)
 
-    # Detectar columnas clave
-    col_nombre = detectar_columna(df_final, ['nombre', 'name', 'jugador'])
+    # Detectar columnas - más flexible
+    col_nombre = detectar_columna(df_final, ['nombre', 'name', 'jugador', 'player'])
     col_poder = detectar_columna(df_final, ['poder', 'power'])
-    col_meritos = detectar_columna(df_final, ['meritos', 'méritos', 'merits'])
+    col_meritos = detectar_columna(df_final, ['meritos', 'méritos', 'merits', 'honor'])
 
-    # Merge inicial vs final
+    # Merge y cálculos
     df = df_final.merge(df_inicial, on=col_nombre, suffixes=('_final', '_inicial'), how='left')
 
-    # Calcular métricas
-    df['poder_actual'] = df[f'{col_poder}_final'].fillna(0)
+    # Limpiar números - quitar comas, M, K, etc
+    for col in [f'{col_poder}_final', f'{col_poder}_inicial', f'{col_meritos}_final', f'{col_meritos}_inicial']:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.replace(',', '').str.replace('M', 'e6').str.replace('K', 'e3')
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+    df['poder_actual'] = df[f'{col_poder}_final']
     df['poder_inicial'] = df[f'{col_poder}_inicial'].fillna(df['poder_actual'])
     df['cambio_poder'] = df['poder_actual'] - df['poder_inicial']
-    df['meta_dia'] = df['poder_inicial'] * (1 + 0.017 * dia_actual) # 1.7% por día
-    df['porcentaje_avance'] = ((df['poder_actual'] / df['meta_dia']) - 1) * 100
+    df['meta_dia'] = df['poder_inicial'] * (1 + 0.017 * dia_actual)
+    df['porcentaje_avance'] = ((df['poder_actual'] / df['meta_dia'].replace(0, 1)) - 1) * 100
     df['meritos_ganados'] = df[f'{col_meritos}_final'] - df[f'{col_meritos}_inicial'].fillna(0)
 
-    # Clasificar estados
-    df['estado'] = 'Normal'
-    df.loc[df['porcentaje_avance'] >= 0, 'estado'] = '🟢 Cumple'
+    # Estados con emojis claros
+    df['estado'] = '🟡 Normal'
+    df.loc[df['porcentaje_avance'] >= 0, 'estado'] = '🟢 Cumple Meta'
     df.loc[(df['poder_actual'] >= 150_000_000) & (df['cambio_poder'] < 0), 'estado'] = '🔴 Ballena Muerta'
     df.loc[df['meritos_ganados'] < 500_000, 'estado'] = '👻 Fantasma'
-    df.loc[(df['poder_actual'] >= 50_000_000) & (df['porcentaje_avance'] < -3), 'estado'] = '⚠️ Riesgo Kick'
+    df.loc[(df['poder_actual'] >= 50_000_000) & (df['porcentaje_avance'] < -5), 'estado'] = '⚠️ Riesgo Kick'
 
-    # Métricas generales
-    total_jugadores = len(df)
+    # Métricas
+    total = len(df)
     cumplen = len(df[df['porcentaje_avance'] >= 0])
-    porcentaje_cumple = (cumplen / total_jugadores) * 100
+    pct_cumple = (cumplen / total) * 100 if total > 0 else 0
     poder_ganado = df[df['cambio_poder'] > 0]['cambio_poder'].sum()
     poder_perdido = abs(df[df['cambio_poder'] < 0]['cambio_poder'].sum())
+    fantasmas = len(df[df['estado'] == '👻 Fantasma'])
+    ballenas_muertas = len(df[df['estado'] == '🔴 Ballena Muerta'])
 
-    # Crear Excel con formato
+    # ===== CREAR EXCEL =====
     wb = Workbook()
-
-    # ===== HOJA 1: DASHBOARD =====
     ws_dash = wb.active
-    ws_dash.title = "DASHBOARD"
+    ws_dash.title = "RESUMEN"
 
     # Estilos
-    header_font = Font(bold=True, size=14, color="FFFFFF")
-    header_fill = PatternFill("solid", fgColor="366092")
-    rojo_fill = PatternFill("solid", fgColor="FF0000")
-    verde_fill = PatternFill("solid", fgColor="00B050")
+    titulo_font = Font(bold=True, size=16, color="FFFFFF")
+    header_font = Font(bold=True, size=12, color="FFFFFF")
+    azul_fill = PatternFill("solid", fgColor="1F4E78")
+    verde_fill = PatternFill("solid", fgColor="70AD47")
+    rojo_fill = PatternFill("solid", fgColor="C00000")
     amarillo_fill = PatternFill("solid", fgColor="FFC000")
-    center_align = Alignment(horizontal="center", vertical="center")
+    center = Alignment(horizontal="center", vertical="center")
 
-    # Título
-    ws_dash.merge_cells('A1:H1')
-    ws_dash['A1'] = f"KVK DÍA {dia_actual} | REINO #127 - DASHBOARD"
-    ws_dash['A1'].font = Font(bold=True, size=18)
-    ws_dash['A1'].alignment = center_align
+    # Título Dashboard
+    ws_dash.merge_cells('A1:L2')
+    ws_dash['A1'] = f"KVK DÍA {dia_actual} | REPORTE OFICIAL TFT"
+    ws_dash['A1'].font = titulo_font
+    ws_dash['A1'].fill = azul_fill
+    ws_dash['A1'].alignment = center
 
-    # Semáforo
-    ws_dash['A3'] = "ESTADO GENERAL"
-    ws_dash['A3'].font = header_font
-    ws_dash['A3'].fill = header_fill
+    # Semáforo grande
+    ws_dash['A4'] = "ESTADO DEL REINO"
+    ws_dash['A4'].font = Font(bold=True, size=14)
+    ws_dash.merge_cells('A4:B4')
 
-    if porcentaje_cumple >= 70:
-        ws_dash['B3'] = "🟢 ESTABLE"
-        ws_dash['B3'].fill = verde_fill
-    elif porcentaje_cumple >= 40:
-        ws_dash['B3'] = "🟡 ALERTA"
-        ws_dash['B3'].fill = amarillo_fill
+    if pct_cumple >= 70:
+        estado_txt, color = "🟢 ESTABLE", verde_fill
+    elif pct_cumple >= 40:
+        estado_txt, color = "🟡 EN ALERTA", amarillo_fill
     else:
-        ws_dash['B3'] = "🔴 CRÍTICO"
-        ws_dash['B3'].fill = rojo_fill
+        estado_txt, color = "🔴 CRÍTICO", rojo_fill
 
-    ws_dash['B3'].font = Font(bold=True, size=12, color="FFFFFF")
-    ws_dash['B3'].alignment = center_align
+    ws_dash['A5'] = estado_txt
+    ws_dash['A5'].font = Font(bold=True, size=20, color="FFFFFF")
+    ws_dash['A5'].fill = color
+    ws_dash['A5'].alignment = center
+    ws_dash.merge_cells('A5:B6')
 
-    # KPIs
-    kpis = [
-        ("Cumplimiento", f"{cumplen}/{total_jugadores}", f"{porcentaje_cumple:.1f}%"),
-        ("Poder Ganado", f"{poder_ganado/1e9:.2f}B", "🟢"),
-        ("Poder Perdido", f"{poder_perdido/1e9:.2f}B", "🔴"),
-        ("Fantasmas", len(df[df['estado'] == '👻 Fantasma']), "<500K méritos")
+    # 4 KPIs principales
+    kpi_data = [
+        ("Cumplimiento", f"{cumplen}/{total}", f"{pct_cumple:.1f}%", verde_fill if pct_cumple >= 50 else rojo_fill),
+        ("Poder Ganado", f"{poder_ganado/1e9:.2f}B", "🟢 Subiendo", verde_fill),
+        ("Poder Perdido", f"{poder_perdido/1e9:.2f}B", "🔴 Bajando", rojo_fill),
+        ("Fantasmas", f"{fantasmas}", "< 500K méritos", amarillo_fill)
     ]
 
-    row = 5
-    for i, (titulo, valor, extra) in enumerate(kpis):
-        col = i * 2 + 1
-        ws_dash.cell(row, col, titulo).font = Font(bold=True)
-        ws_dash.cell(row + 1, col, valor).font = Font(size=16, bold=True)
-        ws_dash.cell(row + 2, col, extra)
-        ws_dash.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col+1)
-        ws_dash.merge_cells(start_row=row+1, start_column=col, end_row=row+1, end_column=col+1)
-        ws_dash.merge_cells(start_row=row+2, start_column=col, end_row=row+2, end_column=col+1)
+    col_start = 4
+    for i, (titulo, valor, sub, color_fill) in enumerate(kpi_data):
+        col = col_start + (i * 2)
+        ws_dash.cell(4, col, titulo).font = Font(bold=True)
+        ws_dash.cell(5, col, valor).font = Font(size=18, bold=True)
+        ws_dash.cell(5, col).fill = color_fill
+        ws_dash.cell(5, col).font = Font(size=18, bold=True, color="FFFFFF")
+        ws_dash.cell(5, col).alignment = center
+        ws_dash.cell(6, col, sub).font = Font(size=9)
+        ws_dash.merge_cells(start_row=5, start_column=col, end_row=5, end_column=col+1)
+        ws_dash.merge_cells(start_row=6, start_column=col, end_row=6, end_column=col+1)
 
-    # Top 3 Buenos y Malos
-    ws_dash['A9'] = "🥇 TOP 3 MEJORES"
-    ws_dash['A9'].font = header_font
-    ws_dash['A9'].fill = verde_fill
-    ws_dash.merge_cells('A9:D9')
+    # ===== GRÁFICA 1: TOP 10 GANADORES =====
+    ws_dash['A8'] = "📈 TOP 10 QUE MÁS CRECIERON"
+    ws_dash['A8'].font = header_font
+    ws_dash['A8'].fill = verde_fill
+    ws_dash.merge_cells('A8:F8')
 
-    top_buenos = df.nlargest(3, 'porcentaje_avance')[[col_nombre, 'poder_actual', 'porcentaje_avance']]
-    for i, (_, row_data) in enumerate(top_buenos.iterrows(), 10):
-        ws_dash[f'A{i}'] = f"{i-9}. {row_data[col_nombre]}"
-        ws_dash[f'B{i}'] = f"{row_data['poder_actual']/1e6:.1f}M"
-        ws_dash[f'C{i}'] = f"+{row_data['porcentaje_avance']:.1f}%"
+    top10_ganan = df.nlargest(10, 'cambio_poder')[[col_nombre, 'cambio_poder']]
+    row_start = 9
+    for i, (_, row) in enumerate(top10_ganan.iterrows()):
+        ws_dash.cell(row_start + i, 1, row[col_nombre])
+        ws_dash.cell(row_start + i, 2, row['cambio_poder'] / 1e6)
 
-    ws_dash['E9'] = "⚠️ TOP 3 RIESGO KICK"
-    ws_dash['E9'].font = header_font
-    ws_dash['E9'].fill = rojo_fill
-    ws_dash.merge_cells('E9:H9')
+    chart_ganan = BarChart()
+    chart_ganan.type = "col"
+    chart_ganan.style = 10
+    chart_ganan.title = "Top 10 Ganancia de Poder (Millones)"
+    chart_ganan.y_axis.title = 'Millones de Poder'
+    chart_ganan.x_axis.title = 'Jugador'
 
-    top_malos = df[df['poder_actual'] >= 50_000_000].nsmallest(3, 'porcentaje_avance')[[col_nombre, 'poder_actual', 'porcentaje_avance']]
-    for i, (_, row_data) in enumerate(top_malos.iterrows(), 10):
-        ws_dash[f'E{i}'] = f"{i-9}. {row_data[col_nombre]}"
-        ws_dash[f'F{i}'] = f"{row_data['poder_actual']/1e6:.1f}M"
-        ws_dash[f'G{i}'] = f"{row_data['porcentaje_avance']:.1f}%"
+    data = Reference(ws_dash, min_col=2, min_row=row_start-1, max_row=row_start+9)
+    cats = Reference(ws_dash, min_col=1, min_row=row_start, max_row=row_start+9)
+    chart_ganan.add_data(data, titles_from_data=True)
+    chart_ganan.set_categories(cats)
+    chart_ganan.height = 10
+    chart_ganan.width = 20
+    ws_dash.add_chart(chart_ganan, "A20")
 
-    # Gráfica de pastel
+    # ===== GRÁFICA 2: TOP 10 PERDEDORES =====
+    ws_dash['G8'] = "📉 TOP 10 QUE MÁS PERDIERON"
+    ws_dash['G8'].font = header_font
+    ws_dash['G8'].fill = rojo_fill
+    ws_dash.merge_cells('G8:L8')
+
+    top10_pierden = df.nsmallest(10, 'cambio_poder')[[col_nombre, 'cambio_poder']]
+    for i, (_, row) in enumerate(top10_pierden.iterrows()):
+        ws_dash.cell(row_start + i, 7, row[col_nombre])
+        ws_dash.cell(row_start + i, 8, abs(row['cambio_poder']) / 1e6)
+
+    chart_pierden = BarChart()
+    chart_pierden.type = "col"
+    chart_pierden.style = 11
+    chart_pierden.title = "Top 10 Pérdida de Poder (Millones)"
+    chart_pierden.y_axis.title = 'Millones de Poder'
+    chart_pierden.x_axis.title = 'Jugador'
+
+    data2 = Reference(ws_dash, min_col=8, min_row=row_start-1, max_row=row_start+9)
+    cats2 = Reference(ws_dash, min_col=7, min_row=row_start, max_row=row_start+9)
+    chart_pierden.add_data(data2, titles_from_data=True)
+    chart_pierden.set_categories(cats2)
+    chart_pierden.height = 10
+    chart_pierden.width = 20
+    ws_dash.add_chart(chart_pierden, "G20")
+
+    # Gráfica de pastel cumplimiento
+    ws_dash['A35'] = "Cumplen"
+    ws_dash['A36'] = "No Cumplen"
+    ws_dash['B35'] = cumplen
+    ws_dash['B36'] = total - cumplen
+
     pie = PieChart()
-    labels = Reference(ws_dash, min_col=1, min_row=15, max_row=16)
-    data = Reference(ws_dash, min_col=2, min_row=15, max_row=16)
-    pie.add_data(data, titles_from_data=False)
+    labels = Reference(ws_dash, min_col=1, min_row=35, max_row=36)
+    data_pie = Reference(ws_dash, min_col=2, min_row=35, max_row=36)
+    pie.add_data(data_pie, titles_from_data=False)
     pie.set_categories(labels)
     pie.title = "Cumplimiento de Meta"
-    ws_dash['A15'] = "Cumplen"
-    ws_dash['A16'] = "No Cumplen"
-    ws_dash['B15'] = cumplen
-    ws_dash['B16'] = total_jugadores - cumplen
-    ws_dash.add_chart(pie, "A18")
+    pie.height = 8
+    pie.width = 12
+    ws_dash.add_chart(pie, "A37")
 
-    # Ajustar anchos
-    for col in range(1, 9):
+    # Anchos
+    for col in range(1, 13):
         ws_dash.column_dimensions[get_column_letter(col)].width = 18
 
-    # ===== HOJA 2: DETALLE JUGADORES =====
-    ws_detalle = wb.create_sheet("DETALLE JUGADORES")
+    # ===== HOJA 2: TABLA COMPLETA =====
+    ws_tabla = wb.create_sheet("TODOS LOS JUGADORES")
     df_export = df[[col_nombre, 'poder_actual', 'poder_inicial', 'cambio_poder', 'meta_dia', 'porcentaje_avance', 'meritos_ganados', 'estado']].copy()
-    df_export.columns = ['Nombre', 'Poder Actual', 'Poder Día 1', 'Cambio', 'Meta Día 7', '% Avance', 'Méritos Ganados', 'Estado']
+    df_export.columns = ['Nombre', 'Poder Actual', 'Poder Día 1', 'Cambio Poder', 'Meta Día 7', '% vs Meta', 'Méritos Ganados', 'Estado']
 
-    # Formato números
     for r in dataframe_to_rows(df_export, index=False, header=True):
-        ws_detalle.append(r)
+        ws_tabla.append(r)
 
-    for row in ws_detalle.iter_rows(min_row=2):
-        for cell in row[1:6]: # Columnas de números
-            cell.number_format = '#,##0'
-        row[5].number_format = '0.0%' # % Avance
+    # Formato tabla
+    for cell in ws_tabla[1]:
+        cell.font = header_font
+        cell.fill = azul_fill
+        cell.alignment = center
 
-    # Colorear filas según estado
-    for i, row in enumerate(ws_detalle.iter_rows(min_row=2), 2):
-        estado = row[7].value
-        if '🟢' in str(estado):
+    for row in ws_tabla.iter_rows(min_row=2):
+        row[1].number_format = '#,##0'
+        row[2].number_format = '#,##0'
+        row[3].number_format = '#,##0'
+        row[4].number_format = '#,##0'
+        row[5].number_format = '0.0%'
+        row[6].number_format = '#,##0'
+
+        # Color fila según estado
+        if '🟢' in str(row[7].value):
             for cell in row: cell.fill = PatternFill("solid", fgColor="C6EFCE")
-        elif '🔴' in str(estado):
+        elif '🔴' in str(row[7].value):
             for cell in row: cell.fill = PatternFill("solid", fgColor="FFC7CE")
-        elif '👻' in str(estado):
+        elif '👻' in str(row[7].value):
             for cell in row: cell.fill = PatternFill("solid", fgColor="FFEB9C")
+        elif '⚠️' in str(row[7].value):
+            for cell in row: cell.fill = PatternFill("solid", fgColor="FFD966")
 
-    # Filtros y anchos
-    ws_detalle.auto_filter.ref = ws_detalle.dimensions
-    for col in ws_detalle.columns:
-        ws_detalle.column_dimensions[get_column_letter(col[0].column)].width = 18
+    ws_tabla.auto_filter.ref = ws_tabla.dimensions
+    ws_tabla.freeze_panes = 'A2'
+
+    for col in ws_tabla.columns:
+        ws_tabla.column_dimensions[get_column_letter(col[0].column)].width = 18
 
     # ===== HOJA 3: FANTASMAS =====
-    ws_fant = wb.create_sheet("FANTASMAS")
-    df_fantasmas = df[df['estado'] == '👻 Fantasma'].sort_values('meritos_ganados')[[col_nombre, 'poder_actual', 'meritos_ganados']]
-    for r in dataframe_to_rows(df_fantasmas, index=False, header=True):
+    ws_fant = wb.create_sheet("FANTASMAS <500K")
+    df_fant = df[df['estado'] == '👻 Fantasma'].sort_values('meritos_ganados')[[col_nombre, 'poder_actual', 'meritos_ganados', 'cambio_poder']]
+    df_fant.columns = ['Nombre', 'Poder', 'Méritos Ganados', 'Cambio Poder']
+    for r in dataframe_to_rows(df_fant, index=False, header=True):
         ws_fant.append(r)
 
-    # ===== HOJA 4: BALLENAS EN RIESGO =====
-    ws_ballenas = wb.create_sheet("BALLENAS RIESGO")
-    df_ballenas = df[df['estado'] == '🔴 Ballena Muerta'].sort_values('cambio_poder')[[col_nombre, 'poder_actual', 'cambio_poder', 'meta_dia']]
-    df_ballenas['A Recuperar'] = df_ballenas['meta_dia'] - df_ballenas['poder_actual']
-    for r in dataframe_to_rows(df_ballenas, index=False, header=True):
-        ws_ballenas.append(r)
+    # ===== HOJA 4: BALLENAS MUERTAS =====
+    ws_ball = wb.create_sheet("BALLENAS MUERTAS")
+    df_ball = df[df['estado'] == '🔴 Ballena Muerta'].sort_values('cambio_poder')[[col_nombre, 'poder_actual', 'cambio_poder', 'meta_dia']]
+    df_ball['Falta para Meta'] = df_ball['meta_dia'] - df_ball['poder_actual']
+    df_ball.columns = ['Nombre', 'Poder Actual', 'Perdido', 'Meta Día 7', 'Falta']
+    for r in dataframe_to_rows(df_ball, index=False, header=True):
+        ws_ball.append(r)
 
-    # Guardar en memoria
+    # ===== HOJA 5: RIESGO KICK =====
+    ws_kick = wb.create_sheet("RIESGO KICK")
+    df_kick = df[df['estado'] == '⚠️ Riesgo Kick'].sort_values('porcentaje_avance')[[col_nombre, 'poder_actual', 'porcentaje_avance', 'meritos_ganados']]
+    df_kick.columns = ['Nombre', 'Poder', '% vs Meta', 'Méritos']
+    for r in dataframe_to_rows(df_kick, index=False, header=True):
+        ws_kick.append(r)
+
+    # Guardar
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
 
-    # Embed de Discord
-    color = 0xFF0000 if porcentaje_cumple < 40 else 0xF1C40F if porcentaje_cumple < 70 else 0x00FF00
+    # Embed bonito
+    color = 0xFF0000 if pct_cumple < 40 else 0xF1C40F if pct_cumple < 70 else 0x00FF00
     embed = discord.Embed(
         title=f"⚔️ KVK DÍA {dia_actual} | REINO #127",
-        description=f"Progreso acumulado desde Día 1 del KVK",
+        description=f"**Reporte de Progreso Acumulado**\nTodos deben crecer 1.7% diario",
         color=color
     )
-    embed.add_field(name="🎯 META INDIVIDUAL 12% ACUMULADA", value=f"**CUMPLIMIENTO: {cumplen}/{total_jugadores} ({porcentaje_cumple:.1f}%)**", inline=False)
-    embed.add_field(name="📊 Poder Ganado", value=f"🟢 +{poder_ganado/1e9:.2f}B", inline=True)
-    embed.add_field(name="📊 Poder Perdido", value=f"🔴 -{poder_perdido/1e9:.2f}B", inline=True)
-    embed.add_field(name="👻 Fantasmas", value=f"{len(df[df['estado'] == '👻 Fantasma'])} jugadores", inline=True)
-    embed.set_footer(text=f"Día {dia_actual} KVK | Dashboard generado")
 
-    archivo = discord.File(buffer, filename=f"KVK_Dia{dia_actual}_Dashboard.xlsx")
+    embed.add_field(
+        name="🎯 META INDIVIDUAL 12% ACUMULADA",
+        value=f"**CUMPLIMIENTO: {cumplen}/{total} ({pct_cumple:.1f}%)**\n{estado_txt}",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🐋 BALLENAS MUERTAS +150M",
+        value=f"**{ballenas_muertas} jugadores perdieron poder**\nPoder muerto: {poder_perdido/1e9:.2f}B",
+        inline=True
+    )
+
+    embed.add_field(
+        name="👻 FANTASMAS <500K MÉRITOS",
+        value=f"**{fantasmas} jugadores inactivos**\nRevisar en hoja 'FANTASMAS'",
+        inline=True
+    )
+
+    embed.add_field(
+        name="📊 GRÁFICAS INCLUIDAS",
+        value="✅ Top 10 Ganadores\n✅ Top 10 Perdedores\n✅ Pastel Cumplimiento",
+        inline=False
+    )
+
+    embed.set_footer(text=f"Día {dia_actual} KVK | Código generado por TFT")
+
+    archivo = discord.File(buffer, filename=f"KVK_Dia{dia_actual}_Dashboard_PRO.xlsx")
     return embed, archivo
 
-def detectar_columna(df, posibles_nombres):
+def detectar_columna(df, posibles):
     for col in df.columns:
-        if any(nombre in str(col).lower() for nombre in posibles_nombres):
+        if any(p in str(col).lower() for p in posibles):
             return col
-    raise ValueError(f"No encontré columna con nombres: {posibles_nombres}")
+    raise ValueError(f"No encontré columna. Buscaba: {posibles}. Tengo: {list(df.columns)}")
 
 from openpyxl.utils.dataframe import dataframe_to_rows
