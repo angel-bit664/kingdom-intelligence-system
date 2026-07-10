@@ -58,11 +58,11 @@ async def procesar_kvk_por_dia(rutas_archivos):
     # Limpiar números
     for df in [df_inicial, df_final]:
         df[col_poder] = (df[col_poder].astype(str)
-                    .str.replace(',', '')
-                    .str.replace(' ', '')
-                    .str.replace('M', 'e6', case=False)
-                    .str.replace('K', 'e3', case=False)
-                    .str.replace('B', 'e9', case=False))
+                   .str.replace(',', '')
+                   .str.replace(' ', '')
+                   .str.replace('M', 'e6', case=False)
+                   .str.replace('K', 'e3', case=False)
+                   .str.replace('B', 'e9', case=False))
         df[col_poder] = pd.to_numeric(df[col_poder], errors='coerce').fillna(0)
 
         df[col_meritos] = (df[col_meritos].astype(str)
@@ -111,7 +111,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     df['meritos_ganados'] = df['meritos_final'] - df['meritos_inicial']
     df['meritos_por_dia'] = df['meritos_ganados'] / dia_actual
 
-    # 🆕 MÉTRICAS QUE PEDISTE
+    # 🆕 MÉTRICAS PARA RANKING GENERAL
     df['poder_maximo'] = df[['poder_actual', 'poder_inicial']].max(axis=1) # El más alto entre inicial y actual
     df['pct_meritos_vs_poder'] = (df['meritos_ganados'] / df['poder_maximo'].replace(0, 1)) * 100 # % Méritos vs Poder Máx
     df['meritos_por_semana'] = df['meritos_ganados'] / (dia_actual / 7) # Méritos proyectados por semana
@@ -314,7 +314,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     df_ranking['posicion'] = range(1, len(df_ranking) + 1)
 
     # Headers
-    headers_ranking = ['Pos', 'Jugador', 'Poder Máx', 'Méritos Ganados', '% Méritos/Poder', 'Méritos/Semana', 'Efic. Méritos', 'Estado', 'Cambio Rank', '% Meta Méritos']
+    headers_ranking = ['Pos', 'Jugador', 'Poder Máx', 'Méritos Ganados', '% Méritos/Poder', 'Méritos/Semana', 'Efic. Méritos', 'Estado', 'Cambio Rank', 'Meta Méritos']
     for i, h in enumerate(headers_ranking):
         cell = ws_ranking.cell(4, i+1, h)
         cell.font = header_style
@@ -356,13 +356,81 @@ async def procesar_kvk_por_dia(rutas_archivos):
         for col in range(1, 11):
             ws_ranking.cell(row_start + idx, col).alignment = Alignment(horizontal="center")
 
-    # Barra de datos en % Méritos/Poder - AQUÍ ESTABA EL BUG ARREGLADO
+    # Barra de datos en % Méritos/Poder - ESTA LÍNEA TENÍA EL ERROR
     ws_ranking.conditional_formatting.add(
-        f'E{row_start}:E{row_start + len(df_ranking) - 1}', # 👈 ARREGLADO: antes decía f'D3:D{len(df_export)+
+        f'E{row_start}:E{row_start + len(df_ranking) - 1}', # 👈 AQUÍ ESTABA EL ERROR - Ya corregido
         DataBarRule(start_type='num', start_value=0, end_type='max',
                    color=COLORES['verde'], showValue=True)
     )
 
     # Iconos en Eficiencia
     ws_ranking.conditional_formatting.add(
-        f'G{row_start}:G{row_start + len(df_ranking
+        f'G{row_start}:G{row_start + len(df_ranking) - 1}',
+        IconSetRule('3TrafficLights1', 'num', [0, 5, 10], showValue=True)
+    )
+
+    ws_ranking.auto_filter.ref = f"A4:J{row_start + len(df_ranking) - 1}"
+    ws_ranking.freeze_panes = 'A5'
+
+    for col in range(1, 11):
+        ws_ranking.column_dimensions[get_column_letter(col)].width = 18
+
+    # HOJA 3: MOVIMIENTOS
+    ws_mov = wb.create_sheet("MOVIMIENTOS")
+    ws_mov.merge_cells('A1:F1')
+    ws_mov['A1'] = f"🔄 MOVIMIENTOS DEL REINO | DÍA {dia_actual}"
+    ws_mov['A1'].font = titulo_style
+    ws_mov['A1'].fill = PatternFill("solid", fgColor=COLORES['azul_oscuro'])
+    ws_mov['A1'].alignment = center
+
+    # ALTAS
+    ws_mov['A3'] = f"🆕 NUEVOS INGRESOS ({len(nuevos)})"
+    ws_mov['A3'].font = header_style
+    ws_mov['A3'].fill = PatternFill("solid", fgColor=COLORES['verde'])
+    ws_mov.merge_cells('A3:C3')
+
+    headers_altas = ['Jugador', 'Poder', 'Eficiencia Méritos']
+    for i, h in enumerate(headers_altas):
+        cell = ws_mov.cell(4, i+1, h)
+        cell.font = Font(bold=True, color=COLORES['blanco'])
+        cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
+        cell.alignment = center
+
+    row = 5
+    df_nuevos = df[df[col_nombre].isin(nuevos)].sort_values('poder_actual', ascending=False)
+    for _, jugador in df_nuevos.iterrows():
+        ws_mov.cell(row, 1, str(jugador[col_nombre])[:30])
+        ws_mov.cell(row, 2, f"{jugador['poder_actual']:,.0f}")
+        ws_mov.cell(row, 3, f"{jugador['eficiencia_meritos']:.1f}")
+        ws_mov.cell(row, 2).number_format = '#,##0'
+        row += 1
+
+    # BAJAS
+    ws_mov['E3'] = f"❌ BAJAS ({len(bajas)})"
+    ws_mov['E3'].font = header_style
+    ws_mov['E3'].fill = PatternFill("solid", fgColor=COLORES['rojo'])
+    ws_mov.merge_cells('E3:G3')
+
+    headers_bajas = ['Jugador', 'Último Poder', 'Rank']
+    for i, h in enumerate(headers_bajas):
+        cell = ws_mov.cell(4, i+5, h)
+        cell.font = Font(bold=True, color=COLORES['blanco'])
+        cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
+        cell.alignment = center
+
+    row = 5
+    df_bajas = df[df[col_nombre].isin(bajas)].sort_values('poder_inicial', ascending=False)
+    for _, jugador in df_bajas.iterrows():
+        ws_mov.cell(row, 5, str(jugador[col_nombre])[:30])
+        ws_mov.cell(row, 6, f"{jugador['poder_inicial']:,.0f}")
+        ws_mov.cell(row, 7, f"#{int(jugador['rank_inicial'])}" if pd.notna(jugador['rank_inicial']) else "N/A")
+        ws_mov.cell(row, 6).number_format = '#,##0'
+        row += 1
+
+    for col in range(1, 8):
+        ws_mov.column_dimensions[get_column_letter(col)].width = 20
+
+    # HOJA 4: DETALLE COMPLETO
+    ws_tabla = wb.create_sheet("DETALLE COMPLETO")
+    ws_tabla.merge_cells('A1:L1')
+    ws_tabla['A1'] = f"📊 DET
