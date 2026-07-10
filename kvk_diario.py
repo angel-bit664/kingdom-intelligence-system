@@ -1,3 +1,4 @@
+python
 import pandas as pd
 import discord
 from openpyxl import Workbook
