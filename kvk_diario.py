@@ -21,7 +21,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 # ===== CONFIG =====
 PODER_MINIMO = 0
 MERITOS_ESPERADOS_POR_DIA = 100_000
-TOKEN = "MTUyMzczNzU3MTk4MzYyMjIwNQ.GKpRGJ.9JvYMt77xcbzpmvspMi89qYVed_wOuQcEU3Wdo" # <-- SOLO CAMBIA ESTO
+TOKEN = "" # <-- SOLO CAMBIA ESTO
 # ==================
 
 COLORES = {
