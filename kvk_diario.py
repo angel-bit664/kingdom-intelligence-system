@@ -14,7 +14,6 @@ import zipfile
 import os
 import sys
 from datetime import datetime
-from dotenv import load_dotenv
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
@@ -71,7 +70,7 @@ async def procesar_kvk_por_dia(archivos_bytes_list):
     df_final = dfs[-1].copy()
     dia_actual = len(dfs)
 
-    # 3. DETECTAR COLUMNAS - CORREGIDO PARA CoD
+    # 3. DETECTAR COLUMNAS - AQUÍ ESTÁ EL ÚNICO CAMBIO
     col_nombre = detectar_columna(df_final, ['nombre_de_personaje', 'nombre', 'name', 'jugador', 'player'])
     col_poder = detectar_columna(df_final, ['poder_actual', 'poder', 'power'])
     col_meritos = detectar_columna(df_final, ['meritos', 'méritos', 'merits', 'honor_points', 'honor'])
@@ -80,18 +79,18 @@ async def procesar_kvk_por_dia(archivos_bytes_list):
     for df in [df_inicial, df_final]:
         # Poder
         df[col_poder] = (df[col_poder].astype(str)
-         .str.replace(',', '', regex=False)
-         .str.replace(' ', '', regex=False)
-         .str.replace('M', 'e6', case=False, regex=False)
-         .str.replace('K', 'e3', case=False, regex=False)
-         .str.replace('B', 'e9', case=False, regex=False))
+        .str.replace(',', '', regex=False)
+        .str.replace(' ', '', regex=False)
+        .str.replace('M', 'e6', case=False, regex=False)
+        .str.replace('K', 'e3', case=False, regex=False)
+        .str.replace('B', 'e9', case=False, regex=False))
         df[col_poder] = pd.to_numeric(df[col_poder], errors='coerce').fillna(0)
         # Méritos
         df[col_meritos] = (df[col_meritos].astype(str)
-         .str.replace(',', '', regex=False)
-         .str.replace(' ', '', regex=False)
-         .str.replace('M', 'e6', case=False, regex=False)
-         .str.replace('K', 'e3', case=False, regex=False))
+        .str.replace(',', '', regex=False)
+        .str.replace(' ', '', regex=False)
+        .str.replace('M', 'e6', case=False, regex=False)
+        .str.replace('K', 'e3', case=False, regex=False))
         df[col_meritos] = pd.to_numeric(df[col_meritos], errors='coerce').fillna(0)
 
     # 5. FILTRAR SI HAY LÍMITE
@@ -278,7 +277,6 @@ async def kvk_slash(interaction: discord.Interaction, archivos: List[discord.Att
     except Exception as e:
         await interaction.followup.send(f"⚠️ Error: `{str(e)}`", ephemeral=True)
 
-load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 if TOKEN:
     bot.run(TOKEN)
