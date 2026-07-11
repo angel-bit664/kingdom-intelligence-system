@@ -402,7 +402,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
         rutas_archivos = []
         for attachment in message.attachments:
             if attachment.filename.endswith('.xlsx') or attachment.filename.endswith('.zip'):
-                ruta = f'./{attachment.filename}'
+             ruta = f'./{attachment.filename}'
                 await attachment.save(ruta)
                 rutas_archivos.append(ruta)
 
