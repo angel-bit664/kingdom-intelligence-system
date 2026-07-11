@@ -9,6 +9,7 @@ from openpyxl.formatting.rule import ColorScaleRule, DataBarRule, IconSetRule
 from openpyxl.utils.dataframe import dataframe_to_rows
 import io
 import zipfile
+import os
 
 # ===== CONFIG =====
 PODER_MINIMO = 0 # 0 = Todos los jugadores | 30_000_000 = Solo >30M
@@ -37,6 +38,7 @@ def detectar_columna(df, posibles):
 async def procesar_kvk_por_dia(rutas_archivos):
     # 1. CARGAR ARCHIVOS
     archivos_excel = []
+    os.makedirs('/tmp', exist_ok=True)
     for ruta in rutas_archivos:
         if ruta.endswith('.zip'):
             with zipfile.ZipFile(ruta, 'r') as zip_ref:
@@ -55,9 +57,9 @@ async def procesar_kvk_por_dia(rutas_archivos):
     nombres_archivos = []
     for ruta in sorted(archivos_excel):
         df = pd.read_excel(ruta)
-        df.columns = df.columns.str.lower().strip().str.replace(' ', '_')
+        df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
         dfs.append(df)
-        nombres_archivos.append(ruta.split('/')[-1].replace('.xlsx', ''))
+        nombres_archivos.append(os.path.basename(ruta).replace('.xlsx', ''))
 
     df_inicial = dfs[0].copy()
     df_final = dfs[-1].copy()
@@ -70,21 +72,19 @@ async def procesar_kvk_por_dia(rutas_archivos):
 
     # 4. LIMPIAR NÚMEROS - ROBUSTO CONTRA M, K, B
     for df in [df_inicial, df_final]:
-        # Poder
         df[col_poder] = (df[col_poder].astype(str)
-          .str.replace(',', '', regex=False)
-          .str.replace(' ', '', regex=False)
-          .str.replace('M', 'e6', case=False, regex=False)
-          .str.replace('K', 'e3', case=False, regex=False)
-          .str.replace('B', 'e9', case=False, regex=False))
+         .str.replace(',', '', regex=False)
+         .str.replace(' ', '', regex=False)
+         .str.replace('M', 'e6', case=False, regex=False)
+         .str.replace('K', 'e3', case=False, regex=False)
+         .str.replace('B', 'e9', case=False, regex=False))
         df[col_poder] = pd.to_numeric(df[col_poder], errors='coerce').fillna(0)
 
-        # Méritos
         df[col_meritos] = (df[col_meritos].astype(str)
-          .str.replace(',', '', regex=False)
-          .str.replace(' ', '', regex=False)
-          .str.replace('M', 'e6', case=False, regex=False)
-          .str.replace('K', 'e3', case=False, regex=False))
+         .str.replace(',', '', regex=False)
+         .str.replace(' ', '', regex=False)
+         .str.replace('M', 'e6', case=False, regex=False)
+         .str.replace('K', 'e3', case=False, regex=False))
         df[col_meritos] = pd.to_numeric(df[col_meritos], errors='coerce').fillna(0)
 
     # 5. FILTRAR SI HAY LÍMITE
@@ -142,7 +142,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     df.loc[(df['estado']!= '❌ BAJA') & (df['poder_actual'] >= 50_000_000) & (df['porcentaje_avance'] < -5), 'estado'] = '⚠️ Riesgo Kick'
     df.loc[(df['estado']!= '❌ BAJA') & (df['pct_meta_meritos'] < -50), 'estado'] = '📉 Sin Méritos'
 
-    # 10. RANKINGS - CON PROTECCIÓN pd.notna()
+    # 10. RANKINGS
     df_final_rank = df_final[[col_nombre, col_poder]].copy()
     df_final_rank['rank_actual'] = df_final_rank[col_poder].rank(ascending=False, method='min')
     df_inicial_rank = df_inicial[[col_nombre, col_poder]].copy()
@@ -492,18 +492,3 @@ async def procesar_kvk_por_dia(rutas_archivos):
             ws.append(r)
         for cell in ws[2]:
             cell.font = header_style
-            cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
-            cell.alignment = center
-        for col in range(1, 7):
-            ws.column_dimensions[get_column_letter(col)].width = 20
-
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return output
-
-# ===== COMANDO DISCORD - SIN List[Attachment] PARA QUE NO TRUENE =====
-def setup(bot):
-    @bot.command(name="kvkdiario")
-    async def kvkdiario(ctx):
-        """Procesa archivos Excel de KVK. Uso: meta kvkdiario +
