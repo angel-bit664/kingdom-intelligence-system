@@ -10,6 +10,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import io
 import zipfile
 import os
+import tempfile
 
 # ===== CONFIG =====
 PODER_MINIMO = 0 # 0 = Todos los jugadores | 30_000_000 = Solo >30M
@@ -38,14 +39,14 @@ def detectar_columna(df, posibles):
 async def procesar_kvk_por_dia(rutas_archivos):
     # 1. CARGAR ARCHIVOS
     archivos_excel = []
-    os.makedirs('/tmp', exist_ok=True)
     for ruta in rutas_archivos:
         if ruta.endswith('.zip'):
             with zipfile.ZipFile(ruta, 'r') as zip_ref:
                 for name in zip_ref.namelist():
                     if name.endswith('.xlsx'):
-                        zip_ref.extract(name, '/tmp/')
-                        archivos_excel.append(f'/tmp/{name}')
+                        temp_path = os.path.join(tempfile.gettempdir(), name)
+                        zip_ref.extract(name, tempfile.gettempdir())
+                        archivos_excel.append(temp_path)
         elif ruta.endswith('.xlsx'):
             archivos_excel.append(ruta)
 
@@ -57,7 +58,7 @@ async def procesar_kvk_por_dia(rutas_archivos):
     nombres_archivos = []
     for ruta in sorted(archivos_excel):
         df = pd.read_excel(ruta)
-        df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
+        df.columns = df.columns.str.lower().strip().str.replace(' ', '_')
         dfs.append(df)
         nombres_archivos.append(os.path.basename(ruta).replace('.xlsx', ''))
 
@@ -169,20 +170,13 @@ async def procesar_kvk_por_dia(rutas_archivos):
     ws_dash = wb.active
     ws_dash.title = "EXECUTIVE DASHBOARD"
 
-    # Estilos
     titulo_style = Font(bold=True, size=22, color=COLORES['blanco'], name='Calibri')
     header_style = Font(bold=True, size=11, color=COLORES['blanco'], name='Calibri')
     kpi_valor_style = Font(bold=True, size=24, color=COLORES['blanco'], name='Calibri')
     kpi_titulo_style = Font(bold=True, size=10, color=COLORES['azul_oscuro'], name='Calibri')
-    border_thick = Border(
-        left=Side(style='medium', color=COLORES['azul_oscuro']),
-        right=Side(style='medium', color=COLORES['azul_oscuro']),
-        top=Side(style='medium', color=COLORES['azul_oscuro']),
-        bottom=Side(style='medium', color=COLORES['azul_oscuro'])
-    )
+    border_thick = Border(left=Side(style='medium', color=COLORES['azul_oscuro']), right=Side(style='medium', color=COLORES['azul_oscuro']), top=Side(style='medium', color=COLORES['azul_oscuro']), bottom=Side(style='medium', color=COLORES['azul_oscuro']))
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    # HEADER
     ws_dash.merge_cells('A1:P3')
     ws_dash['A1'] = f"⚔️ REPORTE EJECUTIVO KVK | DÍA {dia_actual}"
     ws_dash['A1'].font = titulo_style
@@ -197,7 +191,6 @@ async def procesar_kvk_por_dia(rutas_archivos):
     ws_dash['A4'].fill = PatternFill("solid", fgColor=COLORES['gris'])
     ws_dash['A4'].alignment = center
 
-    # SEMÁFORO
     ws_dash['A6'] = "ESTADO GENERAL"
     ws_dash['A6'].font = kpi_titulo_style
     ws_dash.merge_cells('A6:C6')
@@ -214,7 +207,6 @@ async def procesar_kvk_por_dia(rutas_archivos):
     ws_dash['A7'].border = border_thick
     ws_dash.merge_cells('A7:C9')
 
-    # KPIs
     kpi_data = [
         ("MIEMBROS ACTIVOS", f"{total}", f"+{len(nuevos)} -{len(bajas)}", COLORES['azul_claro']),
         ("TASA CUMPLIMIENTO", f"{pct_cumple:.1f}%", f"{cumplen}/{total}", COLORES['verde'] if pct_cumple >= 50 else COLORES['rojo']),
@@ -240,7 +232,6 @@ async def procesar_kvk_por_dia(rutas_archivos):
         ws_dash.cell(9, col).alignment = center
         ws_dash.merge_cells(start_row=9, start_column=col, end_row=9, end_column=col+1)
 
-    # TOP MOVERS
     ws_dash['A11'] = "📈 TOP 5 ESCALARON POSICIONES"
     ws_dash['A11'].font = header_style
     ws_dash['A11'].fill = PatternFill("solid", fgColor=COLORES['verde'])
@@ -278,7 +269,6 @@ async def procesar_kvk_por_dia(rutas_archivos):
         for col in range(6, 10):
             ws_dash.cell(13 + i, col).alignment = Alignment(horizontal="center")
 
-    # Gráfica
     ws_dash['A20'] = "Cumplen"
     ws_dash['A21'] = "No Cumplen"
     ws_dash['B20'] = cumplen
@@ -293,7 +283,6 @@ async def procesar_kvk_por_dia(rutas_archivos):
     for col in range(1, 17):
         ws_dash.column_dimensions[get_column_letter(col)].width = 14
 
-    # ===== HOJA 2: RANKING GENERAL =====
     ws_ranking = wb.create_sheet("RANKING GENERAL")
     ws_ranking.merge_cells('A1:I1')
     ws_ranking['A1'] = f"🏆 RANKING GENERAL - TODOS LOS JUGADORES"
@@ -327,14 +316,12 @@ async def procesar_kvk_por_dia(rutas_archivos):
         ws_ranking.cell(row_start + idx, 7, row['eficiencia_meritos'])
         ws_ranking.cell(row_start + idx, 8, str(row['estado']))
         ws_ranking.cell(row_start + idx, 9, int(row['cambio_rank']) if pd.notna(row['cambio_rank']) else 0)
-
         ws_ranking.cell(row_start + idx, 3).number_format = '#,##0'
         ws_ranking.cell(row_start + idx, 4).number_format = '#,##0'
         ws_ranking.cell(row_start + idx, 5).number_format = '0.00%'
         ws_ranking.cell(row_start + idx, 6).number_format = '#,##0'
         ws_ranking.cell(row_start + idx, 7).number_format = '0.00'
         ws_ranking.cell(row_start + idx, 9).number_format = '+0;-0;0'
-
         if idx < 3:
             for col in range(1, 10):
                 ws_ranking.cell(row_start + idx, col).fill = PatternFill("solid", fgColor='FFD700')
@@ -344,27 +331,19 @@ async def procesar_kvk_por_dia(rutas_archivos):
         for col in range(1, 10):
             ws_ranking.cell(row_start + idx, col).alignment = Alignment(horizontal="center")
 
-    ws_ranking.conditional_formatting.add(
-        f'E{row_start}:E{row_start + len(df_ranking) - 1}',
-        DataBarRule(start_type='num', start_value=0, end_type='max', color=COLORES['verde'], showValue=True)
-    )
-    ws_ranking.conditional_formatting.add(
-        f'G{row_start}:G{row_start + len(df_ranking) - 1}',
-        IconSetRule('3TrafficLights1', 'num', [0, 5, 10], showValue=True)
-    )
+    ws_ranking.conditional_formatting.add(f'E{row_start}:E{row_start + len(df_ranking) - 1}', DataBarRule(start_type='num', start_value=0, end_type='max', color=COLORES['verde'], showValue=True))
+    ws_ranking.conditional_formatting.add(f'G{row_start}:G{row_start + len(df_ranking) - 1}', IconSetRule('3TrafficLights1', 'num', [0, 5, 10], showValue=True))
     ws_ranking.auto_filter.ref = f"A4:I{row_start + len(df_ranking) - 1}"
     ws_ranking.freeze_panes = 'A5'
     for col in range(1, 10):
         ws_ranking.column_dimensions[get_column_letter(col)].width = 18
 
-    # HOJA 3: MOVIMIENTOS
     ws_mov = wb.create_sheet("MOVIMIENTOS")
     ws_mov.merge_cells('A1:F1')
     ws_mov['A1'] = f"🔄 MOVIMIENTOS DEL REINO | DÍA {dia_actual}"
     ws_mov['A1'].font = titulo_style
     ws_mov['A1'].fill = PatternFill("solid", fgColor=COLORES['azul_oscuro'])
     ws_mov['A1'].alignment = center
-
     ws_mov['A3'] = f"🆕 NUEVOS INGRESOS ({len(nuevos)})"
     ws_mov['A3'].font = header_style
     ws_mov['A3'].fill = PatternFill("solid", fgColor=COLORES['verde'])
@@ -384,7 +363,6 @@ async def procesar_kvk_por_dia(rutas_archivos):
         ws_mov.cell(row, 2).number_format = '#,##0'
         ws_mov.cell(row, 3).number_format = '0.00'
         row += 1
-
     ws_mov['E3'] = f"❌ BAJAS ({len(bajas)})"
     ws_mov['E3'].font = header_style
     ws_mov['E3'].fill = PatternFill("solid", fgColor=COLORES['rojo'])
@@ -406,25 +384,21 @@ async def procesar_kvk_por_dia(rutas_archivos):
     for col in range(1, 8):
         ws_mov.column_dimensions[get_column_letter(col)].width = 20
 
-    # HOJA 4: DETALLE COMPLETO
     ws_tabla = wb.create_sheet("DETALLE COMPLETO")
     ws_tabla.merge_cells('A1:L1')
     ws_tabla['A1'] = f"📊 DETALLE DE TODOS LOS JUGADORES"
     ws_tabla['A1'].font = titulo_style
     ws_tabla['A1'].fill = PatternFill("solid", fgColor=COLORES['azul_oscuro'])
     ws_tabla['A1'].alignment = center
-
     df_export = df[[col_nombre, 'poder_actual', 'poder_inicial', 'cambio_poder', 'cambio_poder_pct', 'meta_dia', 'porcentaje_avance', 'meritos_ganados', 'eficiencia_meritos', 'pct_meta_meritos', 'estado', 'cambio_rank']].copy()
     df_export.columns = ['Nombre', 'Poder Actual', 'Poder Inicial', 'Cambio Poder', '% Cambio', 'Meta Día 7', '% vs Meta', 'Méritos Ganados', 'Efic. Méritos', '% Meta Méritos', 'Estado', 'Cambio Rank']
     for r in dataframe_to_rows(df_export, index=False, header=True):
         ws_tabla.append(r)
-
     for cell in ws_tabla[2]:
         cell.font = header_style
         cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
         cell.alignment = center
         cell.border = border_thick
-
     for row in ws_tabla.iter_rows(min_row=3, max_row=len(df_export)+2):
         row[1].number_format = '#,##0'
         row[2].number_format = '#,##0'
@@ -436,20 +410,9 @@ async def procesar_kvk_por_dia(rutas_archivos):
         row[8].number_format = '0.00'
         row[9].number_format = '0.0%'
         row[11].number_format = '0'
-
-    ws_tabla.conditional_formatting.add(
-        f'D3:D{len(df_export)+2}',
-        DataBarRule(start_type='num', start_value=-10000000, end_type='num', end_value=10000000, color=COLORES['azul_claro'], showValue=True)
-    )
-    ws_tabla.conditional_formatting.add(
-        f'G3:G{len(df_export)+2}',
-        IconSetRule('3Arrows', 'percent', [0, 33, 67], showValue=True)
-    )
-    ws_tabla.conditional_formatting.add(
-        f'I3:I{len(df_export)+2}',
-        ColorScaleRule(start_type='min', start_color='FF6B6B', mid_type='percentile', mid_value=50, mid_color='FFD93D', end_type='max', end_color='6BCF7F')
-    )
-
+    ws_tabla.conditional_formatting.add(f'D3:D{len(df_export)+2}', DataBarRule(start_type='num', start_value=-10000000, end_type='num', end_value=10000000, color=COLORES['azul_claro'], showValue=True))
+    ws_tabla.conditional_formatting.add(f'G3:G{len(df_export)+2}', IconSetRule('3Arrows', 'percent', [0, 33, 67], showValue=True))
+    ws_tabla.conditional_formatting.add(f'I3:I{len(df_export)+2}', ColorScaleRule(start_type='min', start_color='FF6B6B', mid_type='percentile', mid_value=50, mid_color='FFD93D', end_type='max', end_color='6BCF7F'))
     for row in ws_tabla.iter_rows(min_row=3, max_row=len(df_export)+2):
         estado = str(row[10].value)
         if '🟢' in estado:
@@ -464,13 +427,11 @@ async def procesar_kvk_por_dia(rutas_archivos):
             for cell in row: cell.fill = PatternFill("solid", fgColor='C6E0B4')
         elif '📉' in estado:
             for cell in row: cell.fill = PatternFill("solid", fgColor='FCE4D6')
-
     ws_tabla.auto_filter.ref = f"A2:L{len(df_export)+2}"
     ws_tabla.freeze_panes = 'A3'
     for col in range(1, 13):
         ws_tabla.column_dimensions[get_column_letter(col)].width = 18
 
-    # HOJAS DE CATEGORÍAS
     hojas_categorias = [
         ("FANTASMAS", df_activos[df_activos['estado'] == '👻 Fantasma'], 'meritos_ganados', 'asc'),
         ("BALLENAS MUERTAS", df_activos[df_activos['estado'] == '🔴 Ballena Muerta'], 'cambio_poder', 'asc'),
@@ -484,7 +445,6 @@ async def procesar_kvk_por_dia(rutas_archivos):
         ws['A1'].font = titulo_style
         ws['A1'].fill = PatternFill("solid", fgColor=COLORES['rojo'])
         ws['A1'].alignment = center
-
         df_cat_export = df_cat[[col_nombre, 'poder_actual', 'cambio_poder', 'porcentaje_avance', 'meritos_ganados', 'eficiencia_meritos']].copy()
         df_cat_export = df_cat_export.sort_values(sort_col, ascending=(orden=='asc'))
         df_cat_export.columns = ['Nombre', 'Poder Actual', 'Cambio Poder', '% vs Meta', 'Méritos Ganados', 'Efic. Méritos']
@@ -492,3 +452,23 @@ async def procesar_kvk_por_dia(rutas_archivos):
             ws.append(r)
         for cell in ws[2]:
             cell.font = header_style
+            cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
+            cell.alignment = center
+        for col in range(1, 7):
+            ws.column_dimensions[get_column_letter(col)].width = 20
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+# ===== COMANDO DISCORD - SIN List[Attachment] PARA QUE NO TRUENE =====
+def setup(bot):
+    @bot.command(name="kvkdiario")
+    async def kvkdiario(ctx):
+        """Procesa archivos Excel de KVK. Uso: meta kvkdiario + adjuntar 2+ archivos Excel o ZIP"""
+        archivos = ctx.message.attachments
+
+        if not archivos:
+            await ctx.send("❌ Sube mínimo 2 archivos Excel o 1 ZIP con varios días de KVK")
+            return
