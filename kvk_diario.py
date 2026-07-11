@@ -2,6 +2,7 @@ import pandas as pd
 import discord
 from discord.ext import commands
 from discord import app_commands
+from typing import List  # ---> SOLUCIÓN AL ERROR DE PYTHON 3.12
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import BarChart, PieChart, Reference
@@ -53,7 +54,7 @@ def ajustar_ancho_columnas(ws, min_ancho=10, max_ancho=40):
             except: pass
         ws.column_dimensions[columna].width = min(max_length + 2, max_ancho) if max_length > 0 else min_ancho
 
-async def procesar_kvk(archivos_discord):
+async def procesar_kvk(archivos_discord: List[discord.Attachment]): # ---> SOLUCIÓN AL ERROR
     # --- OPTIMIZACION RAM: Solo guardar Día 1 y Día N ---
     df_inicial = None
     df_final = None
@@ -65,7 +66,6 @@ async def procesar_kvk(archivos_discord):
         
         if archivo.filename.endswith('.zip'):
             with zipfile.ZipFile(io.BytesIO(file_bytes), 'r') as zip_ref:
-                # Ordenar para asegurar que el primero sea el día 1 y el último el día N
                 for name in sorted(zip_ref.namelist()):
                     if name.endswith('.xlsx'):
                         print(f"Procesando dentro de ZIP: {name}")
@@ -76,8 +76,8 @@ async def procesar_kvk(archivos_discord):
                         
                         if df_inicial is None: df_inicial = df_temp
                         df_final = df_temp
-                        del df_temp # BORRAR DE RAM INMEDIATAMENTE
-                        gc.collect() # Forzar limpieza de basura
+                        del df_temp 
+                        gc.collect()
                         
         elif archivo.filename.endswith('.xlsx'):
             print(f"Procesando archivo suelto: {archivo.filename}")
@@ -93,7 +93,6 @@ async def procesar_kvk(archivos_discord):
     if df_inicial is None or df_final is None or dia_actual < 2:
         raise ValueError("❌ Necesitas mínimo 2 días de KVK.")
 
-    # LIMPIAR COLUMNAS
     for df in [df_inicial, df_final]:
         df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
 
@@ -127,7 +126,6 @@ async def procesar_kvk(archivos_discord):
     if PODER_MINIMO > 0:
         df = df[df['poder_actual'] >= PODER_MINIMO].copy()
 
-    # CÁLCULOS
     df['cambio_poder'] = df['poder_actual'] - df['poder_inicial']
     df['cambio_poder_pct'] = ((df['poder_actual'] / df['poder_inicial'].replace(0, 1)) - 1) * 100
     df['meta_acumulada'] = df['poder_inicial'] * (1 + 0.017 * dia_actual)
@@ -140,7 +138,6 @@ async def procesar_kvk(archivos_discord):
     df['meta_meritos'] = MERITOS_ESPERADOS_POR_DIA * dia_actual
     df['pct_meta_meritos'] = ((df['meritos_ganados'] / df['meta_meritos'].replace(0, 1)) - 1) * 100
 
-    # ESTADOS
     df['estado'] = '🟡 Normal'
     df.loc[df[col_nombre].isin(nuevos), 'estado'] = '🆕 NUEVO'
     df.loc[df[col_nombre].isin(bajas), 'estado'] = '❌ BAJA'
@@ -150,7 +147,6 @@ async def procesar_kvk(archivos_discord):
     df.loc[(df['estado']!= '❌ BAJA') & (df['poder_actual'] >= 50_000_000) & (df['porcentaje_avance'] < -5), 'estado'] = '⚠️ Riesgo Kick'
     df.loc[(df['estado']!= '❌ BAJA') & (df['pct_meta_meritos'] < -50), 'estado'] = '📉 Sin Méritos'
 
-    # RANKINGS
     df_final_rank = df_final[[col_nombre, col_poder]].copy()
     df_final_rank['rank_actual'] = df_final_rank[col_poder].rank(ascending=False, method='min')
     df_inicial_rank = df_inicial[[col_nombre, col_poder]].copy()
@@ -160,7 +156,6 @@ async def procesar_kvk(archivos_discord):
     df = df.merge(df_inicial_rank[[col_nombre, 'rank_inicial']], on=col_nombre, how='left')
     df['cambio_rank'] = df['rank_inicial'].fillna(df['rank_actual']) - df['rank_actual']
 
-    # MÉTRICAS GLOBALES
     df_activos = df[df['estado']!= '❌ BAJA'].copy()
     total = len(df_activos)
     cumplen = len(df_activos[df_activos['porcentaje_avance'] >= 0])
@@ -173,7 +168,9 @@ async def procesar_kvk(archivos_discord):
     sin_meritos = len(df_activos[df_activos['estado'] == '📉 Sin Méritos'])
     meritos_totales = df_activos['meritos_ganados'].sum()
 
-    # Liberar RAM antes de crear Excel
+    # ---> SOLUCIÓN AL ERROR DE MEMORIA: Calcular Top 3 ANTES de borrar
+    top_3_crecimiento = df_activos.nlargest(3, 'cambio_poder')
+
     del df_inicial, df_final, df_final_rank, df_inicial_rank
     gc.collect()
     print("Cálculos terminados, generando Excel...")
@@ -229,7 +226,6 @@ async def procesar_kvk(archivos_discord):
         cell.fill = PatternFill("solid", fgColor=COLORES['azul_claro'])
         cell.alignment = center
 
-    top_crecimiento = df_activos.nlargest(5, 'cambio_poder')
     for i, (_, row) in enumerate(top_crecimiento.iterrows()):
         ws_dash.cell(12 + i, 1, str(row[col_nombre])[:25])
         ws_dash.cell(12 + i, 2, row['cambio_poder']).number_format = '#,##0'
@@ -294,17 +290,19 @@ async def procesar_kvk(archivos_discord):
     wb.save(excel_ram)
     excel_ram.seek(0)
     
-    del wb, df, df_activos, df_ranking # Limpiar RAM
-    gc.collect()
-
-    top_3_crecimiento = df_activos.nlargest(3, 'cambio_poder') # Pequeño bug fix: usar top_crecimiento ya calculado
+    # Crear diccionario de mensaje
     datos_mensaje = {
         'dia_actual': dia_actual, 'total': total, 'nuevos': len(nuevos), 'bajas': len(bajas),
         'cumplen': cumplen, 'pct_cumple': pct_cumple, 'poder_ganado': poder_ganado,
         'poder_perdido': poder_perdido, 'fantasmas': fantasmas, 'ballenas_muertas': ballenas_muertas,
         'riesgo_kick': riesgo_kick, 'sin_meritos': sin_meritos, 'meritos_totales': meritos_totales,
-        'top_3': [(str(row[col_nombre])[:20], row['cambio_poder']) for _, row in top_crecimiento.iterrows()]
+        'top_3': [(str(row[col_nombre])[:20], row['cambio_poder']) for _, row in top_3_crecimiento.iterrows()]
     }
+    
+    # Ahora sí limpiar todo lo pesado
+    del wb, df, df_activos, df_ranking, df_cat, top_3_crecimiento 
+    gc.collect()
+
     return excel_ram, datos_mensaje
 
 # --- BOT DISCORD ---
@@ -325,7 +323,7 @@ async def on_ready():
 
 @bot.tree.command(name="kvk", description="Genera reporte KVK")
 @app_commands.describe(archivos="Sube tus archivos Excel o ZIP")
-async def kvk_slash(interaction: discord.Interaction, archivos: list[discord.Attachment]):
+async def kvk_slash(interaction: discord.Interaction, archivos: List[discord.Attachment]): # ---> SOLUCIÓN AL ERROR
     await interaction.response.defer(thinking=True)
     try:
         for arch in archivos:
