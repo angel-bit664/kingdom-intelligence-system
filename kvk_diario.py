@@ -267,10 +267,25 @@ async def on_ready():
         print(f'Error sync: {e}')
 
 @bot.tree.command(name="kvk", description="Reporte KVK")
-@app_commands.describe(archivos="Sube tus Excel o ZIP")
-async def kvk_slash(interaction: discord.Interaction, archivos: List[discord.Attachment]):
+@app_commands.describe(
+    dia1="Excel del día 1",
+    dia2="Excel del día 2", 
+    dia3="Excel del día 3 opcional",
+    dia4="Excel del día 4 opcional"
+)
+async def kvk_slash(
+    interaction: discord.Interaction, 
+    dia1: discord.Attachment,
+    dia2: discord.Attachment,
+    dia3: discord.Attachment = None,
+    dia4: discord.Attachment = None
+):
     await interaction.response.defer(thinking=True)
     try:
+        archivos = [dia1, dia2]
+        if dia3: archivos.append(dia3)
+        if dia4: archivos.append(dia4)
+        
         archivos_bytes = [await a.read() for a in archivos]
         excel = await procesar_kvk_por_dia(archivos_bytes)
         await interaction.followup.send(file=discord.File(fp=excel, filename=f"Reporte_KVK_{datetime.now().day}.xlsx"))
