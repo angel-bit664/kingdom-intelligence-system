@@ -2,6 +2,8 @@ import discord
 from discord.ext import commands
 import io
 import os
+import zipfile
+import pandas as pd
 
 def setup(bot):
     @bot.command(name="kvkdiario")
@@ -10,16 +12,10 @@ def setup(bot):
         archivos = ctx.message.attachments
 
         if not archivos:
-            await ctx.send("❌ Sube mínimo 2 archivos Excel o 1 ZIP con varios días de KVK")
+            await ctx.send("Error: Sube minimo 2 archivos Excel o 1 ZIP con varios dias de KVK")
             return
 
-        if len(archivos) < 1:
-            await ctx.send("❌ Necesito al menos 1 archivo")
-            return
+        await ctx.send(f"Recibi {len(archivos)} archivo(s). Comando cargado correctamente.")
+        # TODO: Aqui va la logica del Excel cuando confirmes que prende
 
-        await ctx.send(f"✅ Recibí {len(archivos)} archivo(s). Procesando...")
-        
-        # Aquí después metemos toda la lógica del Excel
-        await ctx.send("⚠️ Función Excel aún no implementada. Primero confirma que el comando responde.")
-
-    print("✅ KVK Dia
+    print("KVK Diario cargado sin errores")
