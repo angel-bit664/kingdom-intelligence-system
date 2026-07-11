@@ -1,21 +1,17 @@
 import discord
 from discord.ext import commands
-import io
-import os
-import zipfile
-import pandas as pd
+
+async def procesar_kvk_por_dia(rutas_archivos):
+    # TODO: Aqui va tu logica del Excel
+    return None
 
 def setup(bot):
     @bot.command(name="kvkdiario")
     async def kvkdiario(ctx):
-        """Procesa archivos Excel de KVK. Uso: meta kvkdiario + adjuntar 2+ archivos Excel o ZIP"""
         archivos = ctx.message.attachments
-
         if not archivos:
-            await ctx.send("Error: Sube minimo 2 archivos Excel o 1 ZIP con varios dias de KVK")
+            await ctx.send("Error: Sube minimo 2 archivos Excel o 1 ZIP")
             return
-
-        await ctx.send(f"Recibi {len(archivos)} archivo(s). Comando cargado correctamente.")
-        # TODO: Aqui va la logica del Excel cuando confirmes que prende
+        await ctx.send(f"Comando OK. Recibi {len(archivos)} archivo(s). Procesando...")
 
     print("KVK Diario cargado sin errores")
