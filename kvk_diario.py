@@ -72,19 +72,19 @@ async def procesar_kvk_por_dia(rutas_archivos):
     for df in [df_inicial, df_final]:
         # Poder
         df[col_poder] = (df[col_poder].astype(str)
-           .str.replace(',', '', regex=False)
-           .str.replace(' ', '', regex=False)
-           .str.replace('M', 'e6', case=False, regex=False)
-           .str.replace('K', 'e3', case=False, regex=False)
-           .str.replace('B', 'e9', case=False, regex=False))
+          .str.replace(',', '', regex=False)
+          .str.replace(' ', '', regex=False)
+          .str.replace('M', 'e6', case=False, regex=False)
+          .str.replace('K', 'e3', case=False, regex=False)
+          .str.replace('B', 'e9', case=False, regex=False))
         df[col_poder] = pd.to_numeric(df[col_poder], errors='coerce').fillna(0)
 
         # Méritos
         df[col_meritos] = (df[col_meritos].astype(str)
-           .str.replace(',', '', regex=False)
-           .str.replace(' ', '', regex=False)
-           .str.replace('M', 'e6', case=False, regex=False)
-           .str.replace('K', 'e3', case=False, regex=False))
+          .str.replace(',', '', regex=False)
+          .str.replace(' ', '', regex=False)
+          .str.replace('M', 'e6', case=False, regex=False)
+          .str.replace('K', 'e3', case=False, regex=False))
         df[col_meritos] = pd.to_numeric(df[col_meritos], errors='coerce').fillna(0)
 
     # 5. FILTRAR SI HAY LÍMITE
@@ -506,6 +506,4 @@ async def procesar_kvk_por_dia(rutas_archivos):
 def setup(bot):
     @bot.command(name="kvkdiario")
     async def kvkdiario(ctx):
-        """Procesa archivos Excel de KVK. Uso: meta kvkdiario + adjuntar 2+ archivos Excel"""
-        if not ctx.message.attachments:
-            await ctx.send("❌ Sube mínimo 2 archivos Excel
+        """Procesa archivos Excel de KVK. Uso: meta kvkdiario +
