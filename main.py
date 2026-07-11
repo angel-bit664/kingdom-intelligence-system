@@ -393,34 +393,36 @@ Felicitación enviada por: Todo el grupo de Oficiales
         return
 
     # ===== META KVKDIARIO =====
-    if peticion.lower().startswith("kvkdiario"):
-        print(f"DEBUG: Archivos recibidos: {[a.filename for a in message.attachments]}")
-        if not message.attachments:
-            await message.channel.send("❌ **Sube mínimo 2 archivos Excel del KVK** o 1 ZIP junto con `meta kvkdiario`")
-            return
-
-        rutas_archivos = []
-        for attachment in message.attachments:
-            if attachment.filename.endswith('.xlsx') or attachment.filename.endswith('.zip'):
-             ruta = f'./{attachment.filename}'
-                await attachment.save(ruta)
-                rutas_archivos.append(ruta)
-
-        if len(rutas_archivos) < 1:
-            await message.channel.send("❌ **Necesito mínimo 1 archivo ZIP o 2 Excel**")
-            return
-
-        msg_procesando = await message.channel.send(f"⏳ Procesando {len(rutas_archivos)} archivo(s) KVK...")
-
-        try:
-            embed, archivo_excel = await procesar_kvk_por_dia(rutas_archivos)
-            await message.channel.send(embed=embed, file=archivo_excel)
-            await msg_procesando.delete()
-        except Exception as e:
-            await msg_procesando.edit(content=f"❌ **Error:** {str(e)[:150]}")
+    # ===== META KVKDIARIO =====
+if peticion.lower().startswith("kvkdiario"):
+    print(f"DEBUG: Archivos recibidos: {[a.filename for a in message.attachments]}")
+    if not message.attachments:
+        await message.channel.send("❌ **Sube mínimo 2 archivos Excel del KVK** o 1 ZIP junto con `meta kvkdiario`")
         return
 
-    # Si no matcheó ningún comando
-    await message.channel.send("❌ **Comando no reconocido.** Usa `meta ayuda` para ver la lista")
+    rutas_archivos = []
+    for attachment in message.attachments:
+        if attachment.filename.endswith('.xlsx') or attachment.filename.endswith('.zip'):
+            ruta = f'./{attachment.filename}'
+            await attachment.save(ruta)
+            rutas_archivos.append(ruta)
 
+    if len(rutas_archivos) < 1:
+        await message.channel.send("❌ **Necesito mínimo 1 archivo ZIP o 2 Excel**")
+        return
+
+    msg_procesando = await message.channel.send(f"⏳ Procesando {len(rutas_archivos)} archivo(s) KVK...")
+
+    try:
+        embed, archivo_excel = await procesar_kvk_por_dia(rutas_archivos)
+        
+        if archivo_excel:
+            await message.channel.send(embed=embed, file=archivo_excel)
+        else:
+            await message.channel.send(embed=embed)
+            
+        await msg_procesando.delete()
+    except Exception as e:
+        await msg_procesando.edit(content=f"❌ **Error:** {str(e)[:150]}")
+    return
 client.run(TOKEN)
