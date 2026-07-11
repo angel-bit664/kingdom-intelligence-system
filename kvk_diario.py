@@ -1,35 +1,23 @@
 import pandas as pd
-import os
-import zipfile
-from io import BytesIO
+import discord
 
 async def procesar_kvk_por_dia(rutas_archivos):
-    """
-    Recibe: lista de rutas ['temp_archivo1.xlsx', 'temp_archivo2.xlsx']
-    Regresa: string con el resultado o None si falla
-    """
     try:
         dataframes = []
-        
         for ruta in rutas_archivos:
-            if ruta.endswith('.zip'):
-                with zipfile.ZipFile(ruta, 'r') as zip_ref:
-                    for nombre in zip_ref.namelist():
-                        if nombre.endswith('.xlsx'):
-                            with zip_ref.open(nombre) as f:
-                                df = pd.read_excel(BytesIO(f.read()))
-                                dataframes.append(df)
-            elif ruta.endswith('.xlsx'):
+            if ruta.endswith('.xlsx'):
                 df = pd.read_excel(ruta)
                 dataframes.append(df)
         
         if len(dataframes) < 2:
-            return "Error: Necesito mínimo 2 archivos Excel para comparar"
+            embed = discord.Embed(description="Error: Necesito mínimo 2 archivos Excel", color=0xFF0000)
+            return embed, None
         
-        # TODO: Aquí va tu lógica real de KVK
-        # Por ahora solo confirmo que leí los archivos
         total_filas = sum(len(df) for df in dataframes)
-        return f"KVK procesado. Leí {len(dataframes)} archivos con {total_filas} filas totales."
+        texto = f"KVK procesado. Leí {len(dataframes)} archivos con {total_filas} filas totales."
+        embed = discord.Embed(title="Reporte KVK", description=texto, color=0x00FF00)
+        return embed, None
         
     except Exception as e:
-        return f"Error procesando KVK: {str(e)[:500]}"
+        embed = discord.Embed(description=f"Error: {str(e)[:500]}", color=0xFF0000)
+        return embed, None
