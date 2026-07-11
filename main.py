@@ -5,7 +5,7 @@ from deep_translator import GoogleTranslator
 from collections import defaultdict
 import re
 import time
-from kvk_diario import procesar_kvk_por_dia
+#from kvk_diario import procesar_kvk_por_dia
 import pandas as pd
 
 # ===== CONFIG =====
