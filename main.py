@@ -43,7 +43,7 @@ async def on_message(message):
     if not message.content.lower().startswith("meta "):
         return
 
-    peticion = message.content[5:].strip()
+    peticion = message.content[5:].strip().lower()
     autor_nombre = message.author.display_name
 
     # ===== META ACTIVATE - CON CANDADO ANTI-DUPLICADOS =====
