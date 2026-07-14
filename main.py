@@ -1,7 +1,7 @@
 import discord
 import os
 import asyncio
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
 from dotenv import load_dotenv
 from groq import Groq
 from langdetect import detect
@@ -26,13 +26,13 @@ procesando_activate = set()
 
 BANDERAS = {
     '🇺🇸': 'en', '🇧🇷': 'pt', '🇫🇷': 'fr', '🇩🇪': 'de', '🇮🇹': 'it',
-    '🇷🇺': 'ru', '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh-cn', '🇸🇦': 'ar',
+    '🇷🇺': 'ru', '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh-CN', '🇸🇦': 'ar',
     '🇹🇷': 'tr', '🇮🇩': 'id', '🇹🇭': 'th', '🇻🇳': 'vi', '🇵🇱': 'pl'
 }
 
 NOMBRES_IDIOMAS = {
     'en': 'English', 'pt': 'Português', 'fr': 'Français', 'de': 'Deutsch',
-    'it': 'Italiano', 'ru': 'Русский', 'ja': '日本語', 'ko': '한국어', 'zh-cn': '中文',
+    'it': 'Italiano', 'ru': 'Русский', 'ja': '日本語', 'ko': '한국어', 'zh-CN': '中文',
     'ar': 'العربية', 'tr': 'Türkçe', 'id': 'Indonesia', 'th': 'ไทย', 'vi': 'Tiếng Việt', 'pl': 'Polski'
 }
 
@@ -62,10 +62,28 @@ Texto: "{texto_original}"
         return {"idioma_detectado": "es", "original_corregido": texto_original, "es": es, "en": en}
 
 async def traducir_a_idioma(texto, idioma_destino):
-    try:
-        return GoogleTranslator(source='auto', target=idioma_destino).translate(texto)
-    except:
-        return f"Error traduciendo a {idioma_destino}"
+    # Fix para chino: Google usa zh-CN no zh-cn
+    if idioma_destino.lower() == 'zh-cn':
+        idioma_destino = 'zh-CN'
+
+    for intento in range(3): # 3 intentos con Google
+        try:
+            resultado = GoogleTranslator(source='auto', target=idioma_destino).translate(texto)
+            # Validar que no regrese error de Google como texto
+            if "Error 500" in resultado or "Server Error" in resultado or "Error 400" in resultado:
+                raise Exception("Google devolvió error de servidor")
+            return resultado
+
+        except Exception as e:
+            print(f"Intento {intento+1} Google falló para {idioma_destino}: {e}")
+            if intento == 2: # Último intento, usar respaldo MyMemory
+                try:
+                    print(f"Usando MyMemory como respaldo para {idioma_destino}")
+                    return MyMemoryTranslator(source='auto', target=idioma_destino).translate(texto)
+                except Exception as e2:
+                    print(f"MyMemory también falló: {e2}")
+                    return f"No se pudo traducir a {idioma_destino}. Intenta más tarde."
+            await asyncio.sleep(1.5) # Espera 1.5s entre intentos
 
 @client.event
 async def on_ready():
@@ -244,8 +262,8 @@ Felicitación enviada por: Todo el grupo de Oficiales
         # Guardar para las reacciones
         mensajes_con_banderas[msg_publicado.id] = {"texto_es": es, "tipo": comando}
 
-        # Agregar banderas abajo
-        for bandera in ['🇧🇷', '🇫🇷', '🇩🇪', '🇮🇹', '🇷🇺', '🇯🇵', '🇰🇷', '🇨🇳']:
+        # Agregar banderas abajo - AHORA CON INDONESIA 🇮🇩
+        for bandera in ['🇧🇷', '🇫🇷', '🇩🇪', '🇮🇹', '🇷🇺', '🇯🇵', '🇰🇷', '🇨🇳', '🇮🇩']:
             await msg_publicado.add_reaction(bandera)
 
         if comando == "evento":
@@ -317,7 +335,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
         embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio", inline=False)
         embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot", inline=False)
         embed.add_field(name="🟢 meta ping", value="Verifica si el bot está activo", inline=False)
-        embed.add_field(name="🌍 Banderas", value="Reacciona a las banderas en eventos/alertas para recibir traducción por DM", inline=False)
+        embed.add_field(name="🌍 Banderas disponibles", value="🇧🇷 🇫🇷 🇩🇪 🇮🇹 🇷🇺 🇯🇵 🇰🇷 🇨🇳 🇮🇩\nReacciona para recibir traducción por DM", inline=False)
         embed.set_footer(text="META ESTÁ CONTIGO. UN REINO, UNA ALIANZA, UNA META.")
         await message.channel.send(embed=embed)
         return
@@ -339,18 +357,24 @@ async def on_reaction_add(reaction, user):
     texto_es = data['texto_es']
 
     try:
+        await reaction.remove(user) # Quitar reacción para que pueda volver a pedirla
+    except:
+        pass
+
+    # Traducir y mandar DM
+    try:
         traduccion = await traducir_a_idioma(texto_es, idioma_destino)
         nombre_idioma = NOMBRES_IDIOMAS.get(idioma_destino, idioma_destino.upper())
 
         embed_dm = discord.Embed(
             title=f"{emoji} Traducción a {nombre_idioma}",
-            description=f"**Texto original:**\n```{texto_es}```\n**Traducción:**\n```{traduccion}```",
             color=0x00FF00
         )
+        embed_dm.add_field(name="Texto original", value=f"```{texto_es}```", inline=False)
+        embed_dm.add_field(name="Traducción", value=f"```{traduccion}```", inline=False)
         embed_dm.set_footer(text=f"Traducción del {data['tipo']} de TFT")
 
         await user.send(embed=embed_dm)
-        await reaction.remove(user)
 
     except discord.Forbidden:
         try:
@@ -359,5 +383,9 @@ async def on_reaction_add(reaction, user):
             pass
     except Exception as e:
         print(f"Error en traducción por bandera: {e}")
+        try:
+            await user.send(f"❌ Error traduciendo. Intenta de nuevo.")
+        except:
+            pass
 
 client.run(TOKEN)
