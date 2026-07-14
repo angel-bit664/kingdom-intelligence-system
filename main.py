@@ -20,24 +20,30 @@ ID_CANAL_ACTIVATE = 1358237524799131662
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.reactions = True
 client = discord.Client(intents=intents)
 procesando_activate = set()
 
 BANDERAS = {
-    'es': '🇪🇸', 'en': '🇺🇸', 'pt': '🇧🇷', 'fr': '🇫🇷', 'de': '🇩🇪',
-    'it': '🇮🇹', 'ru': '🇷🇺', 'ja': '🇯🇵', 'ko': '🇰🇷', 'zh-cn': '🇨🇳',
-    'zh-tw': '🇹🇼', 'ar': '🇸🇦', 'tr': '🇹🇷', 'id': '🇮🇩', 'th': '🇹🇭',
-    'vi': '🇻🇳', 'pl': '🇵🇱', 'nl': '🇳🇱', 'sv': '🇸🇪', 'da': '🇩🇰',
-    'no': '🇳🇴', 'fi': '🇫🇮', 'cs': '🇨🇿', 'ro': '🇷🇴', 'hu': '🇭🇺',
-    'el': '🇬🇷', 'he': '🇮🇱', 'hi': '🇮🇳', 'bn': '🇧🇩', 'ur': '🇵🇰'
+    '🇺🇸': 'en', '🇧🇷': 'pt', '🇫🇷': 'fr', '🇩🇪': 'de', '🇮🇹': 'it',
+    '🇷🇺': 'ru', '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh-cn', '🇸🇦': 'ar',
+    '🇹🇷': 'tr', '🇮🇩': 'id', '🇹🇭': 'th', '🇻🇳': 'vi', '🇵🇱': 'pl'
 }
 
+NOMBRES_IDIOMAS = {
+    'en': 'English', 'pt': 'Português', 'fr': 'Français', 'de': 'Deutsch',
+    'it': 'Italiano', 'ru': 'Русский', 'ja': '日本語', 'ko': '한국어', 'zh-cn': '中文',
+    'ar': 'العربية', 'tr': 'Türkçe', 'id': 'Indonesia', 'th': 'ไทย', 'vi': 'Tiếng Việt', 'pl': 'Polski'
+}
+
+mensajes_con_banderas = {} # {message_id: {"texto_es": "...", "tipo": "evento"}}
+
 async def corregir_y_traducir_ia(texto_original):
-    prompt = f"""Eres un asistente para un clan de call of dragons. Tu tarea es:
-1. Detectar el idioma del texto.
-2. Corregir errores ortográficos y gramaticales del texto original.
-3. Traducir el texto corregido a Español e Inglés.
-4. Responder SOLO en formato JSON con las claves: "idioma_detectado", "original_corregido", "es", "en".
+    prompt = f"""Eres un asistente para un clan de Rise of Kingdoms.
+1. Detecta el idioma del texto.
+2. Corrige errores ortográficos y gramaticales del texto original.
+3. Traduce el texto corregido a Español e Inglés.
+4. Responde SOLO en JSON: {{"idioma_detectado": "es", "original_corregido": "texto", "es": "texto", "en": "texto"}}
 
 Texto: "{texto_original}"
 """
@@ -46,32 +52,24 @@ Texto: "{texto_original}"
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            temperature=0.2
+            temperature=0.1
         )
-        resultado = json.loads(respuesta.choices[0].message.content)
-        return resultado
+        return json.loads(respuesta.choices[0].message.content)
     except Exception as e:
         print(f"Error con Groq: {e}")
-        try:
-            idioma = detect(texto_original)
-        except:
-            idioma = 'es'
-        es = texto_original if idioma == 'es' else GoogleTranslator(source='auto', target='es').translate(texto_original)
+        es = texto_original
         en = GoogleTranslator(source='auto', target='en').translate(texto_original)
-        return {
-            "idioma_detectado": idioma,
-            "original_corregido": texto_original,
-            "es": es,
-            "en": en
-        }
+        return {"idioma_detectado": "es", "original_corregido": texto_original, "es": es, "en": en}
+
+async def traducir_a_idioma(texto, idioma_destino):
+    try:
+        return GoogleTranslator(source='auto', target=idioma_destino).translate(texto)
+    except:
+        return f"Error traduciendo a {idioma_destino}"
 
 @client.event
 async def on_ready():
     print(f'✅ Bot conectado como {client.user}')
-    print(f'✅ ID del bot: {client.user.id}')
-    print(f'✅ Listo en {len(client.guilds)} servidores')
-    print(f'✅ Canal anuncios: {ID_CANAL_ANUNCIOS}')
-    print(f'✅ Canal general: {ID_CANAL_ACTIVATE}')
 
 @client.event
 async def on_message(message):
@@ -85,21 +83,18 @@ async def on_message(message):
         return
     comando = partes[1].lower()
     args = partes[2] if len(partes) > 2 else ""
-    autor_nombre = message.author.display_name
+    autor = message.author
 
-    # ===== META ACTIVATE ===== AHORA CON IA EN MENSAJE CUSTOM
+    # ===== META ACTIVATE ===== ES/EN AUTOMÁTICO
     if comando == "activate":
         if message.author.id in procesando_activate:
             return
         procesando_activate.add(message.author.id)
-        print(f'[ACTIVATE] Candado puesto para {autor_nombre}')
         try:
             usuarios_mencionados = []
             mensaje_custom = None
-
             if message.mentions:
                 usuarios_mencionados = message.mentions
-                # Extraer texto después de las menciones
                 texto_despues = message.content
                 for user in message.mentions:
                     texto_despues = texto_despues.replace(f'<@{user.id}>', '').replace(f'<@!{user.id}>', '')
@@ -113,7 +108,6 @@ async def on_message(message):
                 try:
                     respuesta = await client.wait_for('message', timeout=30.0, check=check)
                     usuarios_mencionados = respuesta.mentions
-                    # Extraer mensaje custom si hay
                     texto_despues = respuesta.content
                     for user in respuesta.mentions:
                         texto_despues = texto_despues.replace(f'<@{user.id}>', '').replace(f'<@!{user.id}>', '')
@@ -136,12 +130,10 @@ async def on_message(message):
             texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
             texto_escudo = "ESCUDOS" if len(usuarios_mencionados) > 1 else "ESCUDO"
 
-            # Si hay mensaje custom, lo pasamos por IA sin spam
-            mensaje_extra_es = ""
-            mensaje_extra_en = ""
+            mensaje_extra = ""
             if mensaje_custom:
                 datos = await corregir_y_traducir_ia(mensaje_custom)
-                mensaje_extra_es = f"\n\n💬 *MENSAJE EXTRA / EXTRA MESSAGE:*\n🇲🇽 {datos['es']}\n🇺🇸 {datos['en']}"
+                mensaje_extra = f"\n\n💬 *MENSAJE / MESSAGE:*\n🇲🇽 {datos['es']}\n🇺🇸 {datos['en']}"
 
             descripcion = f"""🚨 *CÓDIGO DE EMERGENCIA TFT* 🚨
 
@@ -156,52 +148,40 @@ NO ACTIVE SHIELD - DANGER ZONE
 🛡️ *PROTOCOLO DE EMERGENCIA / EMERGENCY PROTOCOL:*
 1. *{texto_plural} INMEDIATAMENTE / CONNECT NOW*
 2. *ESCUDO 8H YA / 8h SHIELD NOW*
-3. *TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT*{mensaje_extra_es}
+3. *TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT*{mensaje_extra}
 
 ⚔️ *ALIANZA TFT EN ALERTA MÁXIMA*
 TFT ALLIANCE ON MAXIMUM ALERT
 
-Código emitido por: {autor_nombre}
+Código emitido por: {autor.display_name}
 
 ⏰ TIEMPO ES CRÍTICO / TIME IS CRITICAL"""
 
             embed = discord.Embed(description=descripcion, color=0xFF0000)
-            embed.set_footer(text=f"🚨 CÓDIGO ROJO TFT | {autor_nombre}")
+            embed.set_footer(text=f"🚨 CÓDIGO ROJO TFT | {autor.display_name}")
 
             canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
-            if not canal_activate:
-                await message.channel.send(f"❌ **No encontré el canal general**\nID: `{ID_CANAL_ACTIVATE}`\n¿El bot tiene acceso a ese canal?")
-                return
-
-            try:
+            if canal_activate:
                 await canal_activate.send(content=usuarios_texto, embed=embed)
                 await message.delete()
-            except discord.Forbidden:
-                await message.channel.send("❌ **No tengo permisos** para escribir en el canal general")
         finally:
             procesando_activate.discard(message.author.id)
-            print(f'[ACTIVATE] Candado liberado para {autor_nombre}')
         return
 
-    # ===== META CUMPLEAÑOS ===== AHORA CON IA
+    # ===== META CUMPLEAÑOS ===== ES/EN AUTOMÁTICO
     if comando in ["cumpleaños", "cumpleanos"]:
         if not message.mentions:
             await message.channel.send("❌ **Debes mencionar al usuario**\n\nEjemplo: `meta cumpleaños @Juan que la pases chido`")
             return
-
         usuario_cumple = message.mentions[0]
         partes_msg = message.content.split()
         mensaje_es = ""
         if len(partes_msg) > 3:
             mensaje_es = " ".join(partes_msg[3:]).strip()
-
         if not mensaje_es:
             mensaje_es = "Que tengas un día increíble lleno de alegría. Te deseamos lo mejor hoy y siempre."
 
-        # Pasar por IA sin spam
         datos = await corregir_y_traducir_ia(mensaje_es)
-        mensaje_es_corregido = datos['es']
-        mensaje_en = datos['en']
 
         descripcion = f"""🎉 *FELIZ CUMPLEAÑOS* 🎉
 
@@ -214,8 +194,8 @@ DÍA DE FIESTA - MODO CELEBRACIÓN ACTIVADO
 CELEBRATION MODE - PARTY TIME
 
 🎁 *MENSAJE / MESSAGE:*
-🇲🇽 {mensaje_es_corregido}
-🇺🇸 {mensaje_en}
+🇲🇽 {datos['es']}
+🇺🇸 {datos['en']}
 
 ⚔️ *LA FAMILIA TFT TE CELEBRA*
 TFT FAMILY CELEBRATES YOU
@@ -226,94 +206,54 @@ Felicitación enviada por: Todo el grupo de Oficiales
 
         embed = discord.Embed(description=descripcion, color=0xFFD700)
         canal_cumple = client.get_channel(ID_CANAL_ACTIVATE)
-
-        if not canal_cumple:
-            await message.channel.send(f"❌ **No encontré el canal general**\nID: `{ID_CANAL_ACTIVATE}`")
-            return
-
-        try:
+        if canal_cumple:
             await canal_cumple.send(content=usuario_cumple.mention, embed=embed)
             await message.delete()
-        except discord.Forbidden:
-            await message.channel.send("❌ **No tengo permisos** en el canal general")
         return
 
-    # ===== META ALERTA ===== CON IA
-    if comando == "alerta":
+    # ===== META EVENTO / ALERTA ===== CON TU DISEÑO + BANDERAS POR DM
+    if comando in ["evento", "alerta"]:
         if not args:
-            await message.channel.send("❌ **Uso:** `meta alerta <mensaje>`")
+            await message.channel.send(f"❌ **Uso:** `meta {comando} <texto>`", delete_after=10)
             return
 
-        procesando = await message.channel.send("⏳ Corrigiendo y traduciendo con IA...")
+        await message.delete()
+        procesando = await message.channel.send("⏳ Corrigiendo con IA...")
+
         datos = await corregir_y_traducir_ia(args)
         await procesando.delete()
 
-        idioma = datos['idioma_detectado']
-        bandera = BANDERAS.get(idioma, '🏳️')
         texto_corregido = datos['original_corregido']
         es = datos['es']
         en = datos['en']
 
-        canal = client.get_channel(ID_CANAL_ANUNCIOS)
-        if not canal:
-            await message.channel.send(f"❌ **No encontré el canal de anuncios**\nID: `{ID_CANAL_ANUNCIOS}`")
-            return
+        color = 0x3498DB if comando == "evento" else 0xF1C40F
+        titulo = "📅 EVENTO OFICIAL / OFFICIAL EVENT" if comando == "evento" else "🚨 ALERTA GENERAL / GENERAL ALERT"
 
-        embed = discord.Embed(title=f"🚨 ALERTA GENERAL - {bandera} {idioma.upper()}", color=0xF1C40F)
-
-        if texto_corregido.lower()!= args.lower():
-            embed.add_field(name="✍️ Original Corregido", value=f"```{texto_corregido}```", inline=False)
-
+        embed = discord.Embed(title=titulo, color=color)
         embed.add_field(name="🇲🇽 Español", value=es, inline=False)
         embed.add_field(name="🇺🇸 English", value=en, inline=False)
-        embed.set_footer(text=f"Alerta enviada por: {autor_nombre}")
-
-        try:
-            await canal.send("@everyone", embed=embed)
-            await message.channel.send("✅ **Alerta enviada con IA**")
-        except discord.Forbidden:
-            await message.channel.send("❌ **No tengo permisos** para escribir o mencionar @everyone en anuncios")
-        return
-
-    # ===== META EVENTO ===== CON IA
-    if comando == "evento":
-        if not args:
-            await message.channel.send("❌ **Uso:** `meta evento <descripción>`")
-            return
-
-        procesando = await message.channel.send("⏳ Corrigiendo y traduciendo con IA...")
-        datos = await corregir_y_traducir_ia(args)
-        await procesando.delete()
-
-        idioma = datos['idioma_detectado']
-        bandera = BANDERAS.get(idioma, '🏳️')
-        texto_corregido = datos['original_corregido']
-        es = datos['es']
-        en = datos['en']
+        embed.set_footer(text=f"{comando.capitalize()} creado por: {autor.display_name}")
 
         canal = client.get_channel(ID_CANAL_ANUNCIOS)
         if not canal:
-            await message.channel.send(f"❌ **No encontré el canal de anuncios**\nID: `{ID_CANAL_ANUNCIOS}`")
-            return
+            canal = message.channel
 
-        embed = discord.Embed(title=f"📅 EVENTO OFICIAL - {bandera} {idioma.upper()}", color=0x3498DB)
+        msg_publicado = await canal.send("@everyone", embed=embed)
 
-        if texto_corregido.lower()!= args.lower():
-            embed.add_field(name="✍️ Original Corregido", value=f"```{texto_corregido}```", inline=False)
+        # Guardar para las reacciones
+        mensajes_con_banderas[msg_publicado.id] = {"texto_es": es, "tipo": comando}
 
-        embed.add_field(name="🇲🇽 Español", value=es, inline=False)
-        embed.add_field(name="🇺🇸 English", value=en, inline=False)
-        embed.set_footer(text=f"Evento creado por: {autor_nombre}")
+        # Agregar banderas abajo
+        for bandera in ['🇧🇷', '🇫🇷', '🇩🇪', '🇮🇹', '🇷🇺', '🇯🇵', '🇰🇷', '🇨🇳']:
+            await msg_publicado.add_reaction(bandera)
 
-        try:
-            msg = await canal.send("@everyone", embed=embed)
-            await msg.add_reaction("👍")
-            await message.channel.send("✅ **Evento publicado con IA**")
-        except discord.Forbidden:
-            await message.channel.send("❌ **No tengo permisos** en el canal de anuncios")
+        if comando == "evento":
+            await msg_publicado.add_reaction("👍")
+
         return
 
-    # ===== RESTO DE COMANDOS: TU CÓDIGO ORIGINAL =====
+    # ===== RESTO DE COMANDOS =====
     if comando == "editar":
         if not args:
             await message.channel.send("❌ **Uso:** `meta editar <nuevo texto>`")
@@ -326,14 +266,14 @@ Felicitación enviada por: Todo el grupo de Oficiales
             if msg.author == client.user and msg.embeds:
                 try:
                     embed = msg.embeds[0]
-                    try:
-                        texto_en = GoogleTranslator(source='es', target='en').translate(args)
-                    except:
-                        texto_en = "Translation failed"
-                    embed.set_field_at(1, name="🎯 Misión / Mission:", value=f"🇲🇽 {args}\n🇺🇸 {texto_en}", inline=False)
-                    await msg.edit(embed=embed)
-                    await message.channel.send("✅ **Último anuncio editado**")
-                    return
+                    if "EVENTO OFICIAL" in embed.title or "ALERTA GENERAL" in embed.title:
+                        datos = await corregir_y_traducir_ia(args)
+                        embed.set_field_at(0, name="🇲🇽 Español", value=datos['es'], inline=False)
+                        embed.set_field_at(1, name="🇺🇸 English", value=datos['en'], inline=False)
+                        mensajes_con_banderas[msg.id] = {"texto_es": datos['es'], "tipo": "editado"}
+                        await msg.edit(embed=embed)
+                        await message.channel.send("✅ **Anuncio editado**", delete_after=5)
+                        return
                 except:
                     pass
         await message.channel.send("❌ **No encontré anuncio para editar**")
@@ -345,7 +285,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
         if args_split and args_split[0].isdigit():
             cantidad = int(args_split[0])
         if cantidad > 100:
-            await message.channel.send("❌ **Máximo 100 mensajes** por Discord API")
+            await message.channel.send("❌ **Máximo 100 mensajes**")
             return
         if cantidad < 1:
             await message.channel.send("❌ **Mínimo 1 mensaje**")
@@ -358,14 +298,9 @@ Felicitación enviada por: Todo el grupo de Oficiales
             return m.author == client.user or m.content.lower().startswith("meta ")
         try:
             borrados = await message.channel.purge(limit=cantidad, check=es_bot_o_meta)
-            if len(borrados) == 0:
-                await message.channel.send("⚠️ **No encontré mensajes del bot para borrar**", delete_after=5)
-            else:
-                await message.channel.send(f"✨ **Limpié {len(borrados)} mensajes**", delete_after=5)
-        except discord.Forbidden:
-            await message.channel.send("❌ **Discord me bloqueó**. Revisa permisos del canal")
-        except discord.HTTPException:
-            await message.channel.send("❌ **Error:** Solo puedo borrar mensajes de menos de 14 días")
+            await message.channel.send(f"✨ **Limpié {len(borrados)} mensajes**", delete_after=5)
+        except:
+            await message.channel.send("❌ **Error al borrar**")
         return
 
     if comando == "ping":
@@ -375,27 +310,54 @@ Felicitación enviada por: Todo el grupo de Oficiales
 
     if comando == "ayuda":
         embed = discord.Embed(title="📋 COMANDOS DISPONIBLES - META BOT", color=0x9B59B6)
-        embed.add_field(name="🚨 meta activate @usuario [mensaje]", value="Código de emergencia con IA opcional", inline=False)
-        embed.add_field(name="🎂 meta cumpleaños @usuario [mensaje]", value="Felicitación con IA + corrección", inline=False)
-        embed.add_field(name="📢 meta alerta <texto>", value="Alerta general con IA + corrección", inline=False)
-        embed.add_field(name="⚔️ meta evento <texto>", value="Evento con IA + corrección + reacción 👍", inline=False)
-        embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio enviado", inline=False)
-        embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot. Ej: `meta limpia 20`", inline=False)
+        embed.add_field(name="🚨 meta activate @usuario [mensaje]", value="Código de emergencia ES/EN", inline=False)
+        embed.add_field(name="🎂 meta cumpleaños @usuario [mensaje]", value="Felicitación ES/EN", inline=False)
+        embed.add_field(name="📢 meta alerta <texto>", value="Alerta ES/EN + banderas para DM", inline=False)
+        embed.add_field(name="⚔️ meta evento <texto>", value="Evento ES/EN + banderas para DM", inline=False)
+        embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio", inline=False)
+        embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot", inline=False)
         embed.add_field(name="🟢 meta ping", value="Verifica si el bot está activo", inline=False)
-        embed.add_field(name="🌐 meta traducir <texto>", value="Traducción automática ES → EN", inline=False)
+        embed.add_field(name="🌍 Banderas", value="Reacciona a las banderas en eventos/alertas para recibir traducción por DM", inline=False)
         embed.set_footer(text="META ESTÁ CONTIGO. UN REINO, UNA ALIANZA, UNA META.")
         await message.channel.send(embed=embed)
         return
 
-    if comando == "traducir":
-        if not args:
-            await message.channel.send("❌ **Uso:** `meta traducir hola mundo`")
-            return
-        try:
-            traducido = GoogleTranslator(source='auto', target='en').translate(args)
-            await message.channel.send(f"🇲🇽→🇺🇸 **{traducido}**")
-        except Exception as e:
-            await message.channel.send(f"❌ Error al traducir: {e}")
+@client.event
+async def on_reaction_add(reaction, user):
+    if user.bot:
         return
+
+    if reaction.message.id not in mensajes_con_banderas:
+        return
+
+    emoji = str(reaction.emoji)
+    if emoji not in BANDERAS:
+        return
+
+    data = mensajes_con_banderas[reaction.message.id]
+    idioma_destino = BANDERAS[emoji]
+    texto_es = data['texto_es']
+
+    try:
+        traduccion = await traducir_a_idioma(texto_es, idioma_destino)
+        nombre_idioma = NOMBRES_IDIOMAS.get(idioma_destino, idioma_destino.upper())
+
+        embed_dm = discord.Embed(
+            title=f"{emoji} Traducción a {nombre_idioma}",
+            description=f"**Texto original:**\n```{texto_es}```\n**Traducción:**\n```{traduccion}```",
+            color=0x00FF00
+        )
+        embed_dm.set_footer(text=f"Traducción del {data['tipo']} de TFT")
+
+        await user.send(embed=embed_dm)
+        await reaction.remove(user)
+
+    except discord.Forbidden:
+        try:
+            await reaction.message.channel.send(f"{user.mention} **Activa tus DMs** para recibir traducciones.", delete_after=10)
+        except:
+            pass
+    except Exception as e:
+        print(f"Error en traducción por bandera: {e}")
 
 client.run(TOKEN)
