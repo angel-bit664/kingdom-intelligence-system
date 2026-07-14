@@ -33,7 +33,7 @@ BANDERAS = {
 }
 
 async def corregir_y_traducir_ia(texto_original):
-    prompt = f"""Eres un asistente para un clan de Rise of Kingdoms. Tu tarea es:
+    prompt = f"""Eres un asistente para un clan de call of dragons. Tu tarea es:
 1. Detectar el idioma del texto.
 2. Corregir errores ortográficos y gramaticales del texto original.
 3. Traducir el texto corregido a Español e Inglés.
