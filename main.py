@@ -1,175 +1,414 @@
 import discord
-from discord.ext import commands
 import os
-from groq import Groq
 import asyncio
+from deep_translator import GoogleTranslator, MyMemoryTranslator
+from dotenv import load_dotenv
+from groq import Groq
+from langdetect import detect
+import json
 
-# --- CONFIGURACIÓN ---
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+load_dotenv()
+
+# ===== CONFIG =====
+TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+groq_client = Groq(api_key=GROQ_API_KEY)
 
-# Intents necesarios
+ID_CANAL_ANUNCIOS = 1358237524249542751
+ID_CANAL_ACTIVATE = 1358237524799131662
+# ==================
+
 intents = discord.Intents.default()
 intents.message_content = True
-intents.guilds = True
+intents.reactions = True
+client = discord.Client(intents=intents)
 
-bot = commands.Bot(command_prefix='meta ', intents=intents)
+procesando_activate = set()
 
-# Cliente de Groq
-groq_client = None
-if GROQ_API_KEY:
-    try:
-        groq_client = Groq(api_key=GROQ_API_KEY)
-        print("🔑 Groq API: Activa")
-    except Exception as e:
-        print(f"❌ Error al inicializar Groq: {e}")
-        groq_client = None
-else:
-    print("⚠️ GROQ_API_KEY no encontrada. Auto-traducción desactivada.")
+BANDERAS = {
+    '🇺🇸': 'en', '🇧🇷': 'pt', '🇫🇷': 'fr', '🇩🇪': 'de', '🇮🇹': 'it',
+    '🇷🇺': 'ru', '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh-CN', '🇸🇦': 'ar',
+    '🇹🇷': 'tr', '🇮🇩': 'id', '🇹🇭': 'th', '🇻🇳': 'vi', '🇵🇱': 'pl'
+}
 
-# Canales con auto-traducción activa
+NOMBRES_IDIOMAS = {
+    'en': 'English', 'pt': 'Português', 'fr': 'Français', 'de': 'Deutsch',
+    'it': 'Italiano', 'ru': 'Русский', 'ja': '日本語', 'ko': '한국어',
+    'zh-CN': '中文', 'ar': 'العربية', 'tr': 'Türkçe', 'id': 'Indonesia',
+    'th': 'ไทย', 'vi': 'Tiếng Việt', 'pl': 'Polski'
+}
+
+mensajes_con_banderas = {} # {message_id: {"texto_es": "...", "tipo": "evento"}}
+
+# ===== NUEVO: CANALES CON AUTO-TRADUCCIÓN EN↔ES =====
 auto_translate_channels = set()
+# ====================================================
 
-# --- EVENTOS ---
-@bot.event
+async def corregir_y_traducir_ia(texto_original):
+    prompt = f"""Eres un asistente para un clan de Rise of Kingdoms.
+1. Detecta el idioma del texto.
+2. Corrige errores ortográficos y gramaticales del texto original.
+3. Traduce el texto corregido a Español e Inglés.
+4. Responde SOLO en JSON: {{"idioma_detectado": "es", "original_corregido": "texto", "es": "texto", "en": "texto"}}
+Texto: "{texto_original}"
+"""
+    try:
+        respuesta = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0.1
+        )
+        return json.loads(respuesta.choices[0].message.content)
+    except Exception as e:
+        print(f"Error con Groq: {e}")
+        es = texto_original
+        en = GoogleTranslator(source='auto', target='en').translate(texto_original)
+        return {"idioma_detectado": "es", "original_corregido": texto_original, "es": es, "en": en}
+
+async def traducir_a_idioma(texto, idioma_destino):
+    # Fix para chino: Google usa zh-CN no zh-cn
+    if idioma_destino.lower() == 'zh-cn':
+        idioma_destino = 'zh-CN'
+    for intento in range(3): # 3 intentos con Google
+        try:
+            resultado = GoogleTranslator(source='auto', target=idioma_destino).translate(texto)
+            # Validar que no regrese error de Google como texto
+            if "Error 500" in resultado or "Server Error" in resultado or "Error 400" in resultado:
+                raise Exception("Google devolvió error de servidor")
+            return resultado
+        except Exception as e:
+            print(f"Intento {intento+1} Google falló para {idioma_destino}: {e}")
+            if intento == 2: # Último intento, usar respaldo MyMemory
+                try:
+                    print(f"Usando MyMemory como respaldo para {idioma_destino}")
+                    return MyMemoryTranslator(source='auto', target=idioma_destino).translate(texto)
+                except Exception as e2:
+                    print(f"MyMemory también falló: {e2}")
+                    return f"No se pudo traducir a {idioma_destino}. Intenta más tarde."
+            await asyncio.sleep(1.5) # Espera 1.5s entre intentos
+
+@client.event
 async def on_ready():
-    print(f"✅ Bot conectado como {bot.user}")
-    print(f"📊 Conectado a {len(bot.guilds)} servidores")
-    await bot.change_presence(activity=discord.Game(name="Kingdom Intelligence"))
+    print(f'✅ Bot conectado como {client.user}')
 
-@bot.event
+@client.event
 async def on_message(message):
-    if message.author == bot.user:
+    if message.author == client.user:
         return
 
-    # Auto-traducción EN↔ES
-    if message.channel.id in auto_translate_channels:
-        # Ignora comandos y mensajes muy cortos
-        if message.content.startswith('meta') or len(message.content) < 4:
-            await bot.process_commands(message)
-            return
+    # ===== MODIFICADO: ACEPTA Meta y meta =====
+    if not message.content.lower().startswith("meta "):
+    # ==========================================
 
-        if groq_client:
+        # ===== NUEVO: AUTO-TRADUCCIÓN EN↔ES =====
+        if message.channel.id in auto_translate_channels:
+            if len(message.content) < 4:
+                return
             try:
-                # 1. Detectar idioma
-                detection = groq_client.chat.completions.create(
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "Detecta si el texto está en inglés o español. Responde SOLO con 'EN' si es inglés, 'ES' si es español, o 'OTHER' si es otro idioma."
-                        },
-                        {"role": "user", "content": message.content}
-                    ],
-                    model="llama-3.1-8b-instant",
-                    temperature=0,
-                    max_tokens=5
-                )
-
-                lang = detection.choices[0].message.content.strip().upper()
+                idioma = detect(message.content)
                 translation = None
                 flag = ""
-                idioma = ""
+                idioma_nombre = ""
 
-                # 2. Traducir según el idioma detectado
-                if lang == "EN":
-                    # Inglés → Español
-                    result = groq_client.chat.completions.create(
-                        messages=[
-                            {"role": "system", "content": "Traduce el siguiente texto de inglés a español. Responde SOLO con la traducción, sin explicaciones ni comillas."},
-                            {"role": "user", "content": message.content}
-                        ],
-                        model="llama-3.1-8b-instant",
-                        temperature=0.3,
-                        max_tokens=200
-                    )
-                    translation = result.choices[0].message.content.strip()
+                if idioma == "en":
+                    translation = GoogleTranslator(source='en', target='es').translate(message.content)
                     flag = "🇲🇽"
-                    idioma = "Español"
-
-                elif lang == "ES":
-                    # Español → Inglés
-                    result = groq_client.chat.completions.create(
-                        messages=[
-                            {"role": "system", "content": "Translate the following text from Spanish to English. Respond ONLY with the translation, no explanations or quotes."},
-                            {"role": "user", "content": message.content}
-                        ],
-                        model="llama-3.1-8b-instant",
-                        temperature=0.3,
-                        max_tokens=200
-                    )
-                    translation = result.choices[0].message.content.strip()
+                    idioma_nombre = "Español"
+                elif idioma == "es":
+                    translation = GoogleTranslator(source='es', target='en').translate(message.content)
                     flag = "🇺🇸"
-                    idioma = "English"
+                    idioma_nombre = "English"
 
-                # 3. Enviar embed si hubo traducción
                 if translation:
                     embed = discord.Embed(
                         title="Traducción automática:",
-                        description=f"{flag} **{idioma}**\n\n{translation}",
+                        description=f"{flag} **{idioma_nombre}**\n\n{translation}",
                         color=0x00B0F4
                     )
-                    embed.set_footer(text=f"Detectado: {lang}")
+                    embed.set_footer(text=f"Detectado: {idioma.upper()}")
                     await message.reply(embed=embed, mention_author=False)
-
             except Exception as e:
-                print(f"[GROQ] ERROR: {e}")
+                print(f"[AUTO-TRADUCCIÓN] ERROR: {e}")
+        # ========================================
+        return
 
-    await bot.process_commands(message)
+    partes = message.content.split(' ', 2)
+    if len(partes) < 2:
+        return
 
-# --- COMANDOS ---
-@bot.command(name='ping')
-async def ping(ctx):
-    await ctx.send(f'🏓 Pong! {round(bot.latency * 1000)}ms')
+    comando = partes[1].lower()
+    args = partes[2] if len(partes) > 2 else ""
+    autor = message.author
 
-@bot.command(name='activate')
-async def activate(ctx):
-    embed = discord.Embed(
-        title="🏰 Kingdom Intelligence Activado",
-        description="Sistema listo para operar.",
-        color=0x00FF00
-    )
-    await ctx.send(embed=embed)
+    # ===== META ACTIVATE ===== ES/EN AUTOMÁTICO
+    if comando == "activate":
+        if message.author.id in procesando_activate:
+            return
+        procesando_activate.add(message.author.id)
+        try:
+            usuarios_mencionados = []
+            mensaje_custom = None
+            if message.mentions:
+                usuarios_mencionados = message.mentions
+                texto_despues = message.content
+                for user in message.mentions:
+                    texto_despues = texto_despues.replace(f'<@{user.id}>', '').replace(f'<@!{user.id}>', '')
+                texto_despues = texto_despues.replace('meta activate', '').strip()
+                if texto_despues:
+                    mensaje_custom = texto_despues
+            else:
+                msg = await message.channel.send("👤 Menciona a los usuarios a activar:")
+                def check(m):
+                    return m.author == message.author and m.channel == message.channel and len(m.mentions) > 0
+                try:
+                    respuesta = await client.wait_for('message', timeout=30.0, check=check)
+                    usuarios_mencionados = respuesta.mentions
+                    texto_despues = respuesta.content
+                    for user in respuesta.mentions:
+                        texto_despues = texto_despues.replace(f'<@{user.id}>', '').replace(f'<@!{user.id}>', '')
+                    texto_despues = texto_despues.strip()
+                    if texto_despues:
+                        mensaje_custom = texto_despues
+                    await respuesta.delete()
+                    await msg.delete()
+                except asyncio.TimeoutError:
+                    await message.channel.send("⏰ Tiempo agotado. Usa `meta activate @usuario1 @usuario2 [mensaje]`")
+                    await msg.delete()
+                    return
+            if not usuarios_mencionados:
+                await message.channel.send("❌ **Debes mencionar al menos 1 usuario**\n\nEjemplo: `meta activate @Juan ve por escudo`")
+                return
+            usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
+            texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
+            texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
+            texto_escudo = "ESCUDOS" if len(usuarios_mencionados) > 1 else "ESCUDO"
+            mensaje_extra = ""
+            if mensaje_custom:
+                datos = await corregir_y_traducir_ia(mensaje_custom)
+                mensaje_extra = f"\n\n💬 *MENSAJE / MESSAGE:*\n🇲🇽 {datos['es']}\n🇺🇸 {datos['en']}"
+            descripcion = f"""🚨 *CÓDIGO DE EMERGENCIA TFT* 🚨
+⚠️ *ALERTA ROJA / RED ALERT* ⚠️
+🎯 *OBJETIVO / TARGET:* *{usuarios_texto}*
+❌ *ESTADO / STATUS:* {texto_sin} {texto_escudo} ACTIVO - ZONA DE PELIGRO
+NO ACTIVE SHIELD - DANGER ZONE
+🛡️ *PROTOCOLO DE EMERGENCIA / EMERGENCY PROTOCOL:*
+1. *{texto_plural} INMEDIATAMENTE / CONNECT NOW*
+2. *ESCUDO 8H YA / 8h SHIELD NOW*
+3. *TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT*{mensaje_extra}
 
-@bot.command(name='evento')
-@commands.cooldown(1, 300, commands.BucketType.guild)
-async def evento(ctx):
-    embed = discord.Embed(
-        title="⚔️ Evento de Kingdom",
-        description="¡El evento ha comenzado! Prepara tus tropas.",
-        color=0xFF9900
-    )
-    await ctx.send(embed=embed)
+⚔️ *ALIANZA TFT EN ALERTA MÁXIMA*
+TFT ALLIANCE ON MAXIMUM ALERT
+Código emitido por: {autor.display_name}
 
-@evento.error
-async def evento_error(ctx, error):
-    if isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(f"⏰ Espera {error.retry_after:.0f}s para usar este comando otra vez.")
+⏰ TIEMPO ES CRÍTICO / TIME IS CRITICAL"""
+            embed = discord.Embed(description=descripcion, color=0xFF0000)
+            embed.set_footer(text=f"🚨 CÓDIGO ROJO TFT | {autor.display_name}")
+            canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
+            if canal_activate:
+                await canal_activate.send(content=usuarios_texto, embed=embed)
+            await message.delete()
+        finally:
+            procesando_activate.discard(message.author.id)
+        return
 
-@bot.command(name='autotraducir')
-async def autotraducir(ctx, estado: str = None):
-    if estado == "on":
-        auto_translate_channels.add(ctx.channel.id)
-        embed = discord.Embed(
-            title="✅ Auto-traducción activada",
-            description="Traduciré mensajes EN↔ES en este canal automáticamente.",
+    # ===== META CUMPLEAÑOS ===== ES/EN AUTOMÁTICO
+    if comando in ["cumpleaños", "cumpleanos"]:
+        if not message.mentions:
+            await message.channel.send("❌ **Debes mencionar al usuario**\n\nEjemplo: `meta cumpleaños @Juan que la pases chido`")
+            return
+        usuario_cumple = message.mentions[0]
+        partes_msg = message.content.split()
+        mensaje_es = ""
+        if len(partes_msg) > 3:
+            mensaje_es = " ".join(partes_msg[3:]).strip()
+        if not mensaje_es:
+            mensaje_es = "Que tengas un día increíble lleno de alegría. Te deseamos lo mejor hoy y siempre."
+        datos = await corregir_y_traducir_ia(mensaje_es)
+        descripcion = f"""🎉 *FELIZ CUMPLEAÑOS* 🎉
+🎂 *CELEBRACIÓN ESPECIAL / SPECIAL CELEBRATION* 🎂
+🎯 *CUMPLEAÑERO / BIRTHDAY:* *{usuario_cumple.mention}*
+🎊 *ESTADO / STATUS:* DÍA DE FIESTA - MODO CELEBRACIÓN ACTIVADO
+CELEBRATION MODE - PARTY TIME
+🎁 *MENSAJE / MESSAGE:*
+🇲🇽 {datos['es']}
+🇺🇸 {datos['en']}
+
+⚔️ *LA FAMILIA TFT TE CELEBRA*
+TFT FAMILY CELEBRATES YOU
+Felicitación enviada por: Todo el grupo de Oficiales
+
+📍 QUE LA PASES INCREÍBLE / HAVE AN AMAZING TIME"""
+        embed = discord.Embed(description=descripcion, color=0xFFD700)
+        canal_cumple = client.get_channel(ID_CANAL_ACTIVATE)
+        if canal_cumple:
+            await canal_cumple.send(content=usuario_cumple.mention, embed=embed)
+        await message.delete()
+        return
+
+    # ===== META EVENTO / ALERTA ===== CON TU DISEÑO + BANDERAS POR DM
+    if comando in ["evento", "alerta"]:
+        if not args:
+            await message.channel.send(f"❌ **Uso:** `meta {comando} <texto>`", delete_after=10)
+            return
+        await message.delete()
+        procesando = await message.channel.send("⏳ Corrigiendo con IA...")
+        datos = await corregir_y_traducir_ia(args)
+        await procesando.delete()
+        texto_corregido = datos['original_corregido']
+        es = datos['es']
+        en = datos['en']
+        color = 0x3498DB if comando == "evento" else 0xF1C40F
+        titulo = "📅 EVENTO OFICIAL / OFFICIAL EVENT" if comando == "evento" else "🚨 ALERTA GENERAL / GENERAL ALERT"
+        embed = discord.Embed(title=titulo, color=color)
+        embed.add_field(name="🇲🇽 Español", value=es, inline=False)
+        embed.add_field(name="🇺🇸 English", value=en, inline=False)
+        embed.set_footer(text=f"{comando.capitalize()} creado por: {autor.display_name}")
+        canal = client.get_channel(ID_CANAL_ANUNCIOS)
+        if not canal:
+            canal = message.channel
+        msg_publicado = await canal.send("@everyone", embed=embed)
+        # Guardar para las reacciones
+        mensajes_con_banderas[msg_publicado.id] = {"texto_es": es, "tipo": comando}
+        # Agregar banderas abajo - AHORA CON INDONESIA 🇮🇩
+        for bandera in ['🇧🇷', '🇫🇷', '🇩🇪', '🇮🇹', '🇷🇺', '🇯🇵', '🇰🇷', '🇨🇳', '🇮🇩']:
+            await msg_publicado.add_reaction(bandera)
+        if comando == "evento":
+            await msg_publicado.add_reaction("👍")
+        return
+
+    # ===== RESTO DE COMANDOS =====
+    if comando == "editar":
+        if not args:
+            await message.channel.send("❌ **Uso:** `meta editar <nuevo texto>`")
+            return
+        canal = client.get_channel(ID_CANAL_ANUNCIOS)
+        if not canal:
+            await message.channel.send("❌ **No encontré el canal de anuncios**")
+            return
+        async for msg in canal.history(limit=50):
+            if msg.author == client.user and msg.embeds:
+                try:
+                    embed = msg.embeds[0]
+                    if "EVENTO OFICIAL" in embed.title or "ALERTA GENERAL" in embed.title:
+                        datos = await corregir_y_traducir_ia(args)
+                        embed.set_field_at(0, name="🇲🇽 Español", value=datos['es'], inline=False)
+                        embed.set_field_at(1, name="🇺🇸 English", value=datos['en'], inline=False)
+                        mensajes_con_banderas[msg.id] = {"texto_es": datos['es'], "tipo": "editado"}
+                        await msg.edit(embed=embed)
+                        await message.channel.send("✅ **Anuncio editado**", delete_after=5)
+                        return
+                except:
+                    pass
+        await message.channel.send("❌ **No encontré anuncio para editar**")
+        return
+
+    if comando == "limpia":
+        args_split = args.split()
+        cantidad = 50
+        if args_split and args_split[0].isdigit():
+            cantidad = int(args_split[0])
+        if cantidad > 100:
+            await message.channel.send("❌ **Máximo 100 mensajes**")
+            return
+        if cantidad < 1:
+            await message.channel.send("❌ **Mínimo 1 mensaje**")
+            return
+        perms = message.channel.permissions_for(message.guild.me)
+        if not perms.manage_messages:
+            await message.channel.send("❌ **No tengo permiso 'Gestionar Mensajes'**")
+            return
+        def es_bot_o_meta(m):
+            return m.author == client.user or m.content.lower().startswith("meta ")
+        try:
+            borrados = await message.channel.purge(limit=cantidad, check=es_bot_o_meta)
+            await message.channel.send(f"✨ **Limpié {len(borrados)} mensajes**", delete_after=5)
+        except:
+            await message.channel.send("❌ **Error al borrar**")
+        return
+
+    if comando == "ping":
+        latencia = round(client.latency * 1000)
+        await message.channel.send(f"🟢 **Bot activo** | Latencia: `{latencia}ms`")
+        return
+
+    # ===== NUEVO: META AUTOTRADUCIR =====
+    if comando == "autotraducir":
+        if args.lower() == "on":
+            auto_translate_channels.add(message.channel.id)
+            embed = discord.Embed(
+                title="✅ Auto-traducción activada",
+                description="Traduciré mensajes EN↔ES en este canal automáticamente.",
+                color=0x00FF00
+            )
+            await message.channel.send(embed=embed)
+        elif args.lower() == "off":
+            auto_translate_channels.discard(message.channel.id)
+            embed = discord.Embed(
+                title="❌ Auto-traducción desactivada",
+                description="Ya no traduciré mensajes en este canal.",
+                color=0xFF0000
+            )
+            await message.channel.send(embed=embed)
+        else:
+            status = "activada" if message.channel.id in auto_translate_channels else "desactivada"
+            await message.channel.send(f"Auto-traducción: **{status}**\nUsa `meta autotraducir on/off`")
+        return
+    # ===================================
+
+    if comando == "ayuda":
+        embed = discord.Embed(title="📋 COMANDOS DISPONIBLES - META BOT", color=0x9B59B6)
+        embed.add_field(name="🚨 meta activate @usuario [mensaje]", value="Código de emergencia ES/EN", inline=False)
+        embed.add_field(name="🎂 meta cumpleaños @usuario [mensaje]", value="Felicitación ES/EN", inline=False)
+        embed.add_field(name="📢 meta alerta <texto>", value="Alerta ES/EN + banderas para DM", inline=False)
+        embed.add_field(name="⚔️ meta evento <texto>", value="Evento ES/EN + banderas para DM", inline=False)
+        embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio", inline=False)
+        embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot", inline=False)
+        embed.add_field(name="🟢 meta ping", value="Verifica si el bot está activo", inline=False)
+        embed.add_field(name="🌍 meta autotraducir on/off", value="Activa traducción EN↔ES automática", inline=False)
+        embed.add_field(name="🌍 Banderas disponibles", value="🇧🇷 🇫🇷 🇩🇪 🇮🇹 🇷🇺 🇯🇵 🇰🇷 🇨🇳 🇮🇩\nReacciona para recibir traducción por DM", inline=False)
+        embed.set_footer(text="META ESTÁ CONTIGO. UN REINO, UNA ALIANZA, UNA META.")
+        await message.channel.send(embed=embed)
+        return
+
+@client.event
+async def on_reaction_add(reaction, user):
+    if user.bot:
+        return
+    if reaction.message.id not in mensajes_con_banderas:
+        return
+    emoji = str(reaction.emoji)
+    if emoji not in BANDERAS:
+        return
+    data = mensajes_con_banderas[reaction.message.id]
+    idioma_destino = BANDERAS[emoji]
+    texto_es = data['texto_es']
+    try:
+        await reaction.remove(user) # Quitar reacción para que pueda volver a pedirla
+    except:
+        pass
+    # Traducir y mandar DM
+    try:
+        traduccion = await traducir_a_idioma(texto_es, idioma_destino)
+        nombre_idioma = NOMBRES_IDIOMAS.get(idioma_destino, idioma_destino.upper())
+        embed_dm = discord.Embed(
+            title=f"{emoji} Traducción a {nombre_idioma}",
             color=0x00FF00
         )
-        await ctx.send(embed=embed)
-    elif estado == "off":
-        auto_translate_channels.discard(ctx.channel.id)
-        embed = discord.Embed(
-            title="❌ Auto-traducción desactivada",
-            description="Ya no traduciré mensajes en este canal.",
-            color=0xFF0000
-        )
-        await ctx.send(embed=embed)
-    else:
-        status = "activada" if ctx.channel.id in auto_translate_channels else "desactivada"
-        await ctx.send(f"Auto-traducción: **{status}**\nUsa `meta autotraducir on/off`")
+        embed_dm.add_field(name="Texto original", value=f"```{texto_es}```", inline=False)
+        embed_dm.add_field(name="Traducción", value=f"```{traduccion}```", inline=False)
+        embed_dm.set_footer(text=f"Traducción del {data['tipo']} de TFT")
+        await user.send(embed=embed_dm)
+    except discord.Forbidden:
+        try:
+            await reaction.message.channel.send(f"{user.mention} **Activa tus DMs** para recibir traducciones.", delete_after=10)
+        except:
+            pass
+    except Exception as e:
+        print(f"Error en traducción por bandera: {e}")
+        try:
+            await user.send(f"❌ Error traduciendo. Intenta de nuevo.")
+        except:
+            pass
 
-# --- INICIAR BOT ---
-if __name__ == "__main__":
-    if DISCORD_TOKEN:
-        bot.run(DISCORD_TOKEN)
-    else:
-        print("❌ DISCORD_TOKEN no encontrado en variables de entorno")
+client.run(TOKEN)
