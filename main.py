@@ -39,10 +39,11 @@ NOMBRES_IDIOMAS = {
 }
 
 mensajes_con_banderas = {} # {message_id: {"texto_es": "...", "tipo": "evento"}}
+mensajes_diplomacia = {} # {message_id: "texto_original"} - Para modo banderas en canal
 
-# ===== NUEVO: CANALES CON AUTO-TRADUCCIÓN EN↔ES =====
-auto_translate_channels = set()
-# ====================================================
+# ===== CANALES CON MODO BANDERAS ACTIVADO =====
+flag_mode_channels = set()
+# ===============================================
 
 async def corregir_y_traducir_ia(texto_original):
     prompt = f"""Eres un asistente para un clan de Rise of Kingdoms.
@@ -97,40 +98,19 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    # ===== MODIFICADO: ACEPTA Meta y meta =====
+    # ===== ACEPTA Meta y meta =====
     if not message.content.lower().startswith("meta "):
-    # ==========================================
+    # ==============================
 
-        # ===== NUEVO: AUTO-TRADUCCIÓN EN↔ES =====
-        if message.channel.id in auto_translate_channels:
-            if len(message.content) < 4:
+        # ===== MODO BANDERAS PARA DIPLOMACIA - RESPUESTA EN CANAL =====
+        if message.channel.id in flag_mode_channels:
+            if len(message.content.strip()) < 2:
                 return
-            try:
-                idioma = detect(message.content)
-                translation = None
-                flag = ""
-                idioma_nombre = ""
-
-                if idioma == "en":
-                    translation = GoogleTranslator(source='en', target='es').translate(message.content)
-                    flag = "🇲🇽"
-                    idioma_nombre = "Español"
-                elif idioma == "es":
-                    translation = GoogleTranslator(source='es', target='en').translate(message.content)
-                    flag = "🇺🇸"
-                    idioma_nombre = "English"
-
-                if translation:
-                    embed = discord.Embed(
-                        title="Traducción automática:",
-                        description=f"{flag} **{idioma_nombre}**\n\n{translation}",
-                        color=0x00B0F4
-                    )
-                    embed.set_footer(text=f"Detectado: {idioma.upper()}")
-                    await message.reply(embed=embed, mention_author=False)
-            except Exception as e:
-                print(f"[AUTO-TRADUCCIÓN] ERROR: {e}")
-        # ========================================
+            # Solo agrega banderas, NO traduce automático
+            mensajes_diplomacia[message.id] = message.content
+            await message.add_reaction('🇪🇸') # España por el mundial 🏆
+            await message.add_reaction('🇺🇸')
+        # ==============================================================
         return
 
     partes = message.content.split(' ', 2)
@@ -332,29 +312,29 @@ Felicitación enviada por: Todo el grupo de Oficiales
         await message.channel.send(f"🟢 **Bot activo** | Latencia: `{latencia}ms`")
         return
 
-    # ===== NUEVO: META AUTOTRADUCIR =====
+    # ===== META AUTOTRADUCIR - MODO BANDERAS EN CANAL =====
     if comando == "autotraducir":
         if args.lower() == "on":
-            auto_translate_channels.add(message.channel.id)
+            flag_mode_channels.add(message.channel.id)
             embed = discord.Embed(
-                title="✅ Auto-traducción activada",
-                description="Traduciré mensajes EN↔ES en este canal automáticamente.",
+                title="✅ Modo banderas activado 🇪🇸🏆",
+                description="Ahora reaccionaré con 🇪🇸🇺🇸 a los mensajes.\nPícale a la bandera para traducir **aquí mismo**.\n\n**Cero spam, se borra en 10s.**",
                 color=0x00FF00
             )
             await message.channel.send(embed=embed)
         elif args.lower() == "off":
-            auto_translate_channels.discard(message.channel.id)
+            flag_mode_channels.discard(message.channel.id)
             embed = discord.Embed(
-                title="❌ Auto-traducción desactivada",
-                description="Ya no traduciré mensajes en este canal.",
+                title="❌ Modo banderas desactivado",
+                description="Ya no agregaré banderas a los mensajes.",
                 color=0xFF0000
             )
             await message.channel.send(embed=embed)
         else:
-            status = "activada" if message.channel.id in auto_translate_channels else "desactivada"
-            await message.channel.send(f"Auto-traducción: **{status}**\nUsa `meta autotraducir on/off`")
+            status = "activado" if message.channel.id in flag_mode_channels else "desactivado"
+            await message.channel.send(f"Modo banderas: **{status}**\nUsa `meta autotraducir on/off`")
         return
-    # ===================================
+    # =======================================================
 
     if comando == "ayuda":
         embed = discord.Embed(title="📋 COMANDOS DISPONIBLES - META BOT", color=0x9B59B6)
@@ -365,7 +345,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
         embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio", inline=False)
         embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot", inline=False)
         embed.add_field(name="🟢 meta ping", value="Verifica si el bot está activo", inline=False)
-        embed.add_field(name="🌍 meta autotraducir on/off", value="Activa traducción EN↔ES automática", inline=False)
+        embed.add_field(name="🌍 meta autotraducir on/off", value="Modo banderas: 🇪🇸🇺🇸 responde en canal (10s)", inline=False)
         embed.add_field(name="🌍 Banderas disponibles", value="🇧🇷 🇫🇷 🇩🇪 🇮🇹 🇷🇺 🇯🇵 🇰🇷 🇨🇳 🇮🇩\nReacciona para recibir traducción por DM", inline=False)
         embed.set_footer(text="META ESTÁ CONTIGO. UN REINO, UNA ALIANZA, UNA META.")
         await message.channel.send(embed=embed)
@@ -375,6 +355,38 @@ Felicitación enviada por: Todo el grupo de Oficiales
 async def on_reaction_add(reaction, user):
     if user.bot:
         return
+
+    # ===== TRADUCCIÓN DIPLOMACIA - RESPUESTA EN CANAL CON AUTO-DELETE 10s =====
+    if reaction.message.id in mensajes_diplomacia:
+        emoji = str(reaction.emoji)
+        if emoji not in ['🇪🇸', '🇺🇸']:
+            return
+
+        texto_original = mensajes_diplomacia[reaction.message.id]
+        idioma_destino = 'es' if emoji == '🇪🇸' else 'en'
+        flag = '🇪🇸' if emoji == '🇪🇸' else '🇺🇸'
+        nombre_idioma = "Español" if emoji == '🇪🇸' else "English"
+
+        try:
+            await reaction.remove(user) # Quita reacción para que pueda volver a usarla
+        except:
+            pass
+
+        try:
+            traduccion = await traducir_a_idioma(texto_original, idioma_destino)
+            embed = discord.Embed(
+                description=f"{flag} **{nombre_idioma}**\n\n{traduccion}",
+                color=0x00B0F4
+            )
+            embed.set_footer(text=f"Solicitado por {user.display_name}")
+            # SE BORRA EN 10 SEGUNDOS
+            await reaction.message.channel.send(embed=embed, delete_after=10)
+        except Exception as e:
+            print(f"Error traduciendo diplomacia: {e}")
+        return
+    # ============================================================================
+
+    # ===== TRADUCCIÓN POR BANDERAS PARA EVENTOS/ALERTAS - POR DM =====
     if reaction.message.id not in mensajes_con_banderas:
         return
     emoji = str(reaction.emoji)
