@@ -13,13 +13,19 @@ load_dotenv()
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-groq_client = Groq(api_key=GROQ_API_KEY)
+
+if not TOKEN:
+    raise ValueError("❌ Falta DISCORD_TOKEN en Railway > Variables")
+if not GROQ_API_KEY:
+    print("⚠️ ADVERTENCIA: Falta GROQ_API_KEY. Solo funcionará Google Translate.")
+
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 ID_CANAL_ANUNCIOS = 1358237524249542751
 ID_CANAL_ACTIVATE = 1358237524799131662
 
-# ===== NUEVO: CANALES CON AUTO-TRADUCCIÓN =====
-canales_autotraducir = set() # Guarda IDs de canales activos
+# ===== CANALES CON AUTO-TRADUCCIÓN =====
+canales_autotraducir = set()
 # ==================
 
 intents = discord.Intents.default()
@@ -52,7 +58,8 @@ async def corregir_y_traducir_ia(texto_original):
         groq_contador.clear()
         groq_reset = datetime.now()
 
-    prompt = f"""Eres un asistente para un clan de Rise of Kingdoms.
+    if groq_client:
+        prompt = f"""Eres un asistente para un clan de Rise of Kingdoms.
 1. Detecta el idioma del texto.
 2. Corrige errores ortográficos y gramaticales del texto original.
 3. Traduce el texto corregido a Español e Inglés.
@@ -60,51 +67,54 @@ async def corregir_y_traducir_ia(texto_original):
 Mantén términos de RoK como: kvk, rally, T4, T5, ark, altar, farm SIN traducir.
 
 Texto: "{texto_original}" """
-
-    try:
-        async with groq_semaphore:
-            respuesta = groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.1
-            )
-            groq_contador['peticiones'] += 1
-            return json.loads(respuesta.choices[0].message.content)
-    except Exception as e:
-        print(f"Groq falló: {e} | Usando Google")
         try:
-            es = GoogleTranslator(source='auto', target='es').translate(texto_original)
-            en = GoogleTranslator(source='auto', target='en').translate(texto_original)
-            return {"idioma_detectado": "auto", "original_corregido": texto_original, "es": es, "en": en}
-        except:
-            return {"idioma_detectado": "es", "original_corregido": texto_original, "es": texto_original, "en": texto_original}
+            async with groq_semaphore:
+                respuesta = groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.1
+                )
+                groq_contador['peticiones'] += 1
+                print(f"[GROQ] OK: {groq_contador['peticiones']}/14000")
+                return json.loads(respuesta.choices[0].message.content)
+        except Exception as e:
+            print(f"[GROQ] ERROR: {e} | Fallback a Google")
+
+    # Fallback Google
+    try:
+        es = GoogleTranslator(source='auto', target='es').translate(texto_original)
+        en = GoogleTranslator(source='auto', target='en').translate(texto_original)
+        return {"idioma_detectado": "auto", "original_corregido": texto_original, "es": es, "en": en}
+    except Exception as e:
+        print(f"[GOOGLE] ERROR: {e}")
+        return {"idioma_detectado": "es", "original_corregido": texto_original, "es": texto_original, "en": texto_original}
 
 async def traducir_a_idioma(texto, idioma_destino):
     idioma_nombre = NOMBRES_IDIOMAS.get(idioma_destino, idioma_destino)
     idioma_google = 'zh-CN' if idioma_destino.lower() == 'zh-cn' else idioma_destino
 
-    prompt = f"""Traduce a {idioma_nombre}.
+    if groq_client:
+        prompt = f"""Traduce a {idioma_nombre}.
 Reglas: Mantén términos de Rise of Kingdoms SIN traducir: kvk, rally, T4, T5, ark, altar, farm, TFT, R4, R5.
 Mantén @menciones y emojis igual.
 Solo devuelve la traducción.
 
 Texto: "{texto}" """
-
-    try:
-        async with groq_semaphore:
-            respuesta = groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=500
-            )
-            groq_contador['peticiones'] += 1
-            traduccion = respuesta.choices[0].message.content.strip()
-            if traduccion and "Error" not in traduccion:
-                return traduccion
-    except Exception as e:
-        print(f"Groq falló para {idioma_nombre}: {e}")
+        try:
+            async with groq_semaphore:
+                respuesta = groq_client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=500
+                )
+                groq_contador['peticiones'] += 1
+                traduccion = respuesta.choices[0].message.content.strip()
+                if traduccion and "Error" not in traduccion:
+                    return traduccion
+        except Exception as e:
+            print(f"[GROQ] Error traduciendo a {idioma_nombre}: {e}")
 
     # Fallback Google
     try:
@@ -117,28 +127,49 @@ Texto: "{texto}" """
 @client.event
 async def on_ready():
     print(f'✅ Bot conectado como {client.user}')
+    print(f'🔑 Groq API: {"Activa" if GROQ_API_KEY else "Desactivada - Solo Google"}')
 
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
 
-    # ===== NUEVO: AUTO-TRADUCCIÓN EN CANALES ACTIVADOS =====
+    # ===== AUTO-TRADUCCIÓN EN CANALES ACTIVADOS =====
     if message.channel.id in canales_autotraducir and not message.content.lower().startswith("meta "):
-        if len(message.content) < 5: # Ignora mensajes muy cortos
+        print(f"[AUTO-TRAD] Canal activo. Mensaje: {message.content}")
+
+        if len(message.content) < 2:
             return
+
         try:
+            if not GROQ_API_KEY:
+                await message.channel.send("❌ **ERROR**: Falta `GROQ_API_KEY` en Railway > Variables")
+                return
+
             datos = await corregir_y_traducir_ia(message.content)
-            # Solo responde si detectó que no es inglés puro ni español puro
-            if datos['idioma_detectado'] not in ['en', 'es']:
-                embed = discord.Embed(color=0x00D9FF)
-                embed.add_field(name="🇲🇽 Español", value=datos['es'], inline=False)
-                embed.add_field(name="🇺🇸 English", value=datos['en'], inline=False)
-                embed.set_footer(text=f"Auto-traducción | Original: {datos['idioma_detectado'].upper()}")
+            print(f"[AUTO-TRAD] Datos: {datos}")
+
+            idioma = datos.get('idioma_detectado', 'unknown')
+            texto_es = datos.get('es', message.content)
+
+            if idioma!= 'es':
+                embed = discord.Embed(color=0x00D9FF, description="**Traducción automática:**")
+                embed.add_field(name="🇲🇽 Español", value=texto_es, inline=False)
+
+                if idioma!= 'en':
+                    texto_en = datos.get('en', '')
+                    embed.add_field(name="🇺🇸 English", value=texto_en, inline=False)
+
+                embed.set_footer(text=f"Detectado: {idioma.upper()}")
                 await message.reply(embed=embed, mention_author=False)
+                print(f"[AUTO-TRAD] Traducción enviada")
+            else:
+                print(f"[AUTO-TRAD] Ya está en español")
+
         except Exception as e:
-            print(f"Error auto-traducción: {e}")
-        return # No procesar comandos si ya tradujo
+            print(f"[AUTO-TRAD] ERROR: {e}")
+            await message.channel.send(f"⚠️ Error traduciendo: `{str(e)[:100]}`")
+        return
     # ==================
 
     if not message.content.lower().startswith("meta "):
@@ -151,7 +182,7 @@ async def on_message(message):
     args = partes[2] if len(partes) > 2 else ""
     autor = message.author
 
-    # ===== NUEVO: COMANDOS AUTO-TRADUCIR =====
+    # ===== COMANDO AUTO-TRADUCIR =====
     if comando == "autotraducir":
         if not message.author.guild_permissions.manage_channels:
             await message.channel.send("❌ Necesitas permiso 'Gestionar Canales'")
@@ -174,12 +205,12 @@ async def on_message(message):
         return
     # ==================
 
-    # ===== META ACTIVATE ===== FIX BUG #1 y #2
+    # ===== META ACTIVATE =====
     if comando == "activate":
         if message.author.id in procesando_activate:
             return
         procesando_activate.add(message.author.id)
-        msg = None # Fix bug #2
+        msg = None
         try:
             usuarios_mencionados = []
             mensaje_custom = None
@@ -246,10 +277,10 @@ Código emitido por: {autor.display_name}
                 await canal_activate.send(content=usuarios_texto, embed=embed)
             await message.delete()
         finally:
-            procesando_activate.discard(message.author.id) # Fix bug #1
+            procesando_activate.discard(message.author.id)
         return
 
-    # ===== RESTO DE COMANDOS IGUAL =====
+    # ===== META CUMPLEAÑOS =====
     if comando in ["cumpleaños", "cumpleanos"]:
         if not message.mentions:
             await message.channel.send("❌ **Debes mencionar al usuario**\n\nEjemplo: `meta cumpleaños @Juan que la pases chido`")
@@ -278,6 +309,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
         await message.delete()
         return
 
+    # ===== META EVENTO / ALERTA =====
     if comando in ["evento", "alerta"]:
         if not args:
             await message.channel.send(f"❌ **Uso:** `meta {comando} <texto>`", delete_after=10)
@@ -286,7 +318,6 @@ Felicitación enviada por: Todo el grupo de Oficiales
         procesando = await message.channel.send("⏳ Corrigiendo con IA...")
         datos = await corregir_y_traducir_ia(args)
         await procesando.delete()
-        texto_corregido = datos['original_corregido']
         es = datos['es']
         en = datos['en']
         color = 0x3498DB if comando == "evento" else 0xF1C40F
@@ -299,7 +330,6 @@ Felicitación enviada por: Todo el grupo de Oficiales
         if not canal: canal = message.channel
         msg_publicado = await canal.send("@everyone", embed=embed)
 
-        # Fix bug #3: Limpiar dict si crece mucho
         if len(mensajes_con_banderas) > 100:
             mensajes_con_banderas.pop(next(iter(mensajes_con_banderas)))
         mensajes_con_banderas[msg_publicado.id] = {"texto_es": es, "tipo": comando}
@@ -310,6 +340,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
             await msg_publicado.add_reaction("👍")
         return
 
+    # ===== META EDITAR =====
     if comando == "editar":
         if not args:
             await message.channel.send("❌ **Uso:** `meta editar <nuevo texto>`")
@@ -324,7 +355,6 @@ Felicitación enviada por: Todo el grupo de Oficiales
                     embed = msg.embeds[0]
                     if "EVENTO OFICIAL" in embed.title or "ALERTA GENERAL" in embed.title:
                         datos = await corregir_y_traducir_ia(args)
-                        # Fix bug #6: Buscar por nombre en vez de índice
                         for i, field in enumerate(embed.fields):
                             if "Español" in field.name: embed.set_field_at(i, name="🇲🇽 Español", value=datos['es'], inline=False)
                             if "English" in field.name: embed.set_field_at(i, name="🇺🇸 English", value=datos['en'], inline=False)
@@ -336,6 +366,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
         await message.channel.send("❌ **No encontré anuncio para editar**")
         return
 
+    # ===== META LIMPIA =====
     if comando == "limpia":
         args_split = args.split()
         cantidad = 50
@@ -360,17 +391,20 @@ Felicitación enviada por: Todo el grupo de Oficiales
             await message.channel.send("❌ **Error al borrar**")
         return
 
+    # ===== META PING =====
     if comando == "ping":
         latencia = round(client.latency * 1000)
         await message.channel.send(f"🟢 **Bot activo** | Latencia: `{latencia}ms`")
         return
 
+    # ===== META STATS =====
     if comando == "stats":
         total = groq_contador['peticiones']
         restante = 14000 - total
         await message.channel.send(f"📊 **Stats Groq hoy**\nUsadas: `{total}/14000`\nRestantes: `{restante}`\nReset: <t:{int((groq_reset + timedelta(hours=24)).timestamp())}:R>")
         return
 
+    # ===== META AYUDA =====
     if comando == "ayuda":
         embed = discord.Embed(title="📋 COMANDOS DISPONIBLES - META BOT", color=0x9B59B6)
         embed.add_field(name="🚨 meta activate @usuario [mensaje]", value="Código de emergencia ES/EN", inline=False)
