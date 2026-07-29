@@ -16,6 +16,7 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 
 ID_CANAL_ANUNCIOS = 1358237524249542751
 ID_CANAL_ACTIVATE = 1358237524799131662
+ID_CANAL_BUFF = 1404721557279871056 # CANAL #buff 🛎️
 # ==================
 
 intents = discord.Intents.default()
@@ -257,6 +258,43 @@ Felicitación enviada por: Todo el grupo de Oficiales
             await msg_publicado.add_reaction("👍")
         return
 
+    # ===== META BUFFO ===== PARA CANAL DE BUFFS CON @EVERYONE
+    if comando in ["buffo", "bufo", "buff"]:
+        if not args:
+            await message.channel.send("❌ **Uso:** `meta buffo <texto>`\n\nEjemplo: `meta buffo Entrenamiento intensivo durante 4 horas`", delete_after=10)
+            return
+        await message.delete()
+        procesando = await message.channel.send("⏳ Procesando bufo...")
+        datos = await corregir_y_traducir_ia(args)
+        await procesando.delete()
+        es = datos['es']
+        en = datos['en']
+
+        embed = discord.Embed(
+            title="🛎️ BUFO DEL REINO ACTIVADO / KINGDOM BUFF ACTIVATED",
+            color=0x9B59B6
+        )
+        embed.add_field(name="🇲🇽 Español", value=f"✅ {es}", inline=False)
+        embed.add_field(name="🇺🇸 English", value=f"✅ {en}", inline=False)
+        embed.add_field(
+            name="⚠️ Nota / Note",
+            value="Los bufos podrán ser modificados en caso de necesidad por eventos o guerra.\nBuffs may be modified if needed for events or war.",
+            inline=False
+        )
+        embed.set_footer(text=f"Bufo activado por: {autor.display_name}")
+
+        canal_buff = client.get_channel(ID_CANAL_BUFF)
+        if not canal_buff:
+            canal_buff = message.channel
+
+        msg_publicado = await canal_buff.send("@everyone", embed=embed)
+        # Agregar banderas para traducción por DM
+        for bandera in ['🇧🇷', '🇫🇷', '🇩🇪', '🇮🇹', '🇷🇺', '🇯🇵', '🇰🇷', '🇨🇳', '🇮🇩']:
+            await msg_publicado.add_reaction(bandera)
+        mensajes_con_banderas[msg_publicado.id] = {"texto_es": es, "tipo": "buffo"}
+        return
+    # ================================================================
+
     # ===== RESTO DE COMANDOS =====
     if comando == "editar":
         if not args:
@@ -342,6 +380,7 @@ Felicitación enviada por: Todo el grupo de Oficiales
         embed.add_field(name="🎂 meta cumpleaños @usuario [mensaje]", value="Felicitación ES/EN", inline=False)
         embed.add_field(name="📢 meta alerta <texto>", value="Alerta ES/EN + banderas para DM", inline=False)
         embed.add_field(name="⚔️ meta evento <texto>", value="Evento ES/EN + banderas para DM", inline=False)
+        embed.add_field(name="🛎️ meta buffo <texto>", value="Bufo del reino ES/EN + @everyone + banderas", inline=False)
         embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio", inline=False)
         embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot", inline=False)
         embed.add_field(name="🟢 meta ping", value="Verifica si el bot está activo", inline=False)
@@ -386,7 +425,7 @@ async def on_reaction_add(reaction, user):
         return
     # ============================================================================
 
-    # ===== TRADUCCIÓN POR BANDERAS PARA EVENTOS/ALERTAS - POR DM =====
+    # ===== TRADUCCIÓN POR BANDERAS PARA EVENTOS/ALERTAS/BUFFOS - POR DM =====
     if reaction.message.id not in mensajes_con_banderas:
         return
     emoji = str(reaction.emoji)
