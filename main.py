@@ -38,7 +38,7 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 ID_CANAL_ANUNCIOS = 1358237524249542751
 ID_CANAL_ACTIVATE = 1358237524799131662
 ID_CANAL_BUFF = 1404721557279871056 # CANAL #buff 🛎️
-==================
+##==================
 intents = discord.Intents.default()
 intents.message_content = True
 intents.reactions = True
@@ -52,9 +52,9 @@ NOMBRES_IDIOMAS = {
 }
 mensajes_con_banderas = {} # {message_id: {"texto_es": "...", "tipo": "evento"}}
 mensajes_diplomacia = {} # {message_id: "texto_original"} - Para modo banderas en canal
-====== CANALES CON MODO BANDERAS ACTIVADO =====
+##====== CANALES CON MODO BANDERAS ACTIVADO =====
 flag_mode_channels = set()
-===============================================
+##===============================================
 async def corregir_y_traducir_ia(texto_original):
     prompt = f"""Eres un asistente para un clan de Rise of Kingdoms. 1. Detecta el idioma del texto. 2. Corrige errores ortográficos y gramaticales del texto original. 3. Traduce el texto corregido a Español e Inglés. 4. Responde SOLO en JSON: {{"idioma_detectado": "es", "original_corregido": "texto", "es": "texto", "en": "texto"}} Texto: "{texto_original}" """
     try:
