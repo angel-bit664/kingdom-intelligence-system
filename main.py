@@ -31,7 +31,7 @@ from langdetect import detect
 import json
 load_dotenv()
 
-====== CONFIG ======
+##====== CONFIG ======
 TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY)
