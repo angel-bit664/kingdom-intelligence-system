@@ -3,7 +3,6 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import os
 import discord
 import asyncio
-import aiohttp
 from deep_translator import GoogleTranslator, MyMemoryTranslator
 from groq import Groq
 import json
@@ -37,23 +36,6 @@ def start_web_server():
     server.serve_forever()
 
 threading.Thread(target=start_web_server, daemon=True).start()
-
-# ========== AUTO-PING PA QUE NO SE DUERMA ==========
-async def self_ping_loop():
-    await asyncio.sleep(60)
-    url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}"
-    if not url or "None" in url:
-        print("[SELF-PING] RENDER_EXTERNAL_HOSTNAME no encontrado")
-        return
-    while True:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=10) as resp:
-                    print(f"[SELF-PING] Status: {resp.status} - Bot vivo")
-        except Exception as e:
-            print(f"[SELF-PING] Error: {e}")
-        await asyncio.sleep(600)
-
 # =======================================================
 
 intents = discord.Intents.default()
@@ -123,7 +105,7 @@ async def traducir_a_idioma(texto, idioma_destino):
 @client.event
 async def on_ready():
     print(f'✅ Bot conectado como {client.user}')
-    client.loop.create_task(self_ping_loop())
+    # SELF-PING ELIMINADO
 
 @client.event
 async def on_message(message):
@@ -257,7 +239,6 @@ Código emitido por: {autor.display_name}"""
         canal = client.get_channel(ID_CANAL_ANUNCIOS) or message.channel
         msg_publicado = await canal.send("@everyone", embed=embed)
         mensajes_con_banderas[msg_publicado.id] = {"texto_es": es, "tipo": comando}
-        # TODAS LAS BANDERAS ACTIVAS
         for bandera in BANDERAS.keys():
             try:
                 await msg_publicado.add_reaction(bandera)
@@ -286,7 +267,6 @@ Código emitido por: {autor.display_name}"""
         embed.set_footer(text=f"Bufo activado por: {autor.display_name}")
         canal_buff = client.get_channel(ID_CANAL_BUFF) or message.channel
         msg_publicado = await canal_buff.send("@everyone", embed=embed)
-        # TODAS LAS BANDERAS ACTIVAS
         for bandera in BANDERAS.keys():
             try:
                 await msg_publicado.add_reaction(bandera)
@@ -373,7 +353,7 @@ async def on_reaction_add(reaction, user):
         try:
             traduccion = await traducir_a_idioma(texto_original, idioma_destino)
             embed = discord.Embed(description=f"{emoji} {traduccion}", color=0x00B0F4)
-            await reaction.message.channel.send(embed=embed, delete_after=20) # CAMBIADO A 20 SEGUNDOS
+            await reaction.message.channel.send(embed=embed, delete_after=20)
         except:
             pass
         return
