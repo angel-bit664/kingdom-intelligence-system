@@ -8,13 +8,14 @@ from groq import Groq
 import json
 import time
 import random
+import sys
 
 ##====== CONFIG ======
 TOKEN = os.environ.get("DISCORD_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 if not TOKEN or not GROQ_API_KEY:
-    print("❌ FALTA TOKEN o GROQ_API_KEY en Environment de Render")
-    exit()
+    print("❌ FALTA TOKEN o GROQ_API_KEY en Environment de Render", flush=True)
+    sys.exit()
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 ID_CANAL_ANUNCIOS = 1358237524249542751
@@ -34,7 +35,7 @@ class PingHandler(BaseHTTPRequestHandler):
 def start_web_server():
     port = int(os.environ.get('PORT', 10000))
     server = HTTPServer(('0.0.0.0', port), PingHandler)
-    print(f"Dummy web server running on port {port}")
+    print(f"Dummy web server running on port {port}", flush=True)
     server.serve_forever()
 
 threading.Thread(target=start_web_server, daemon=True).start()
@@ -77,7 +78,7 @@ Texto: "{texto_original}" """
         )
         return json.loads(respuesta.choices[0].message.content)
     except Exception as e:
-        print(f"Error con Groq: {e}")
+        print(f"Error con Groq: {e}", flush=True)
         es = texto_original
         try:
             en = GoogleTranslator(source='auto', target='en').translate(texto_original)
@@ -95,18 +96,18 @@ async def traducir_a_idioma(texto, idioma_destino):
                 raise Exception("Google devolvió error")
             return resultado
         except Exception as e:
-            print(f"Intento {intento+1} Google falló para {idioma_destino}: {e}")
+            print(f"Intento {intento+1} Google falló para {idioma_destino}: {e}", flush=True)
             if intento == 2:
                 try:
                     return MyMemoryTranslator(source='auto', target=idioma_destino).translate(texto)
                 except Exception as e2:
-                    print(f"MyMemory también falló: {e2}")
+                    print(f"MyMemory también falló: {e2}", flush=True)
                     return f"No se pudo traducir a {idioma_destino}."
             await asyncio.sleep(1.5)
 
 @client.event
 async def on_ready():
-    print(f'✅ Bot conectado como {client.user}')
+    print(f'✅ Bot conectado como {client.user}', flush=True)
 
 @client.event
 async def on_message(message):
@@ -382,22 +383,22 @@ async def on_reaction_add(reaction, user):
     except:
         pass
 
-# ========== LOGIN CON RETRY ANTI-1015 ==========
+# ========== LOGIN CON RETRY ANTI-1015 + FLUSH ==========
 if __name__ == "__main__":
     while True:
         try:
             delay = random.randint(10, 20)
-            print(f"Intentando conectar en {delay} seg...")
+            print(f"Intentando conectar en {delay} seg...", flush=True)
             time.sleep(delay)
             client.run(TOKEN)
         except discord.errors.HTTPException as e:
             if e.status == 429:
-                print("Rate limit 429 detectado. Esperando 15 min antes de reintentar...")
+                print("Rate limit 429 detectado. Esperando 15 min antes de reintentar...", flush=True)
                 time.sleep(900)
             else:
-                print(f"Error HTTP: {e}")
+                print(f"Error HTTP: {e}", flush=True)
                 raise e
         except Exception as e:
-            print(f"Otro error: {e}")
-            print("Reintentando en 60 seg...")
+            print(f"Otro error: {e}", flush=True)
+            print("Reintentando en 60 seg...", flush=True)
             time.sleep(60)
