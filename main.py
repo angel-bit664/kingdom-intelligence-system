@@ -4,18 +4,16 @@ import os
 import discord
 import asyncio
 from deep_translator import GoogleTranslator, MyMemoryTranslator
+from dotenv import load_dotenv
 from groq import Groq
 import json
-import time
-import random
-import sys
+load_dotenv()
 
 ##====== CONFIG ======
-TOKEN = os.environ.get("DISCORD_TOKEN")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+TOKEN = os.getenv("DISCORD_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not TOKEN or not GROQ_API_KEY:
-    print("❌ FALTA TOKEN o GROQ_API_KEY en Environment de Render", flush=True)
-    sys.exit()
+    print("❌ FALTA TOKEN o GROQ_API_KEY en Environment de Render")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 ID_CANAL_ANUNCIOS = 1358237524249542751
@@ -23,19 +21,20 @@ ID_CANAL_ACTIVATE = 1358237524799131662
 ID_CANAL_BUFF = 1404721557279871056
 ##==================
 
-# ========== WEB SERVER PARA UPTIMEROBOT ==========
+# ========== WEB SERVER PARA RENDER - NO TOCAR ==========
 class PingHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b'Kingdom bot is alive!')
+
     def log_message(self, format, *args):
         return
 
 def start_web_server():
     port = int(os.environ.get('PORT', 10000))
     server = HTTPServer(('0.0.0.0', port), PingHandler)
-    print(f"Dummy web server running on port {port}", flush=True)
+    print(f"Dummy web server running on port {port}")
     server.serve_forever()
 
 threading.Thread(target=start_web_server, daemon=True).start()
@@ -45,19 +44,22 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.reactions = True
 client = discord.Client(intents=intents)
-
 procesando_activate = set()
+
 BANDERAS = {
     '🇺🇸': 'en', '🇧🇷': 'pt', '🇫🇷': 'fr', '🇩🇪': 'de', '🇮🇹': 'it',
     '🇷🇺': 'ru', '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh-CN', '🇸🇦': 'ar',
-    '🇹🇷': 'tr', '🇮🇩': 'id', '🇹🇭': 'th', '🇻🇳': 'vi', '🇵🇱': 'pl'
+    '🇹🇷': 'tr', '🇮🇩': 'id', '🇹🇭': 'th', '🇻🇳': 'vi', '🇵🇱': 'pl',
+    '🏳️‍🌈': 'lgbt' # Bandera especial
 }
+
 NOMBRES_IDIOMAS = {
     'en': 'English', 'pt': 'Português', 'fr': 'Français', 'de': 'Deutsch',
     'it': 'Italiano', 'ru': 'Русский', 'ja': '日本語', 'ko': '한국어',
     'zh-CN': '中文', 'ar': 'العربية', 'tr': 'Türkçe', 'id': 'Indonesia',
     'th': 'ไทย', 'vi': 'Tiếng Việt', 'pl': 'Polski'
 }
+
 mensajes_con_banderas = {}
 mensajes_diplomacia = {}
 flag_mode_channels = set()
@@ -68,7 +70,8 @@ async def corregir_y_traducir_ia(texto_original):
 2. Corrige errores ortográficos y gramaticales del texto original.
 3. Traduce el texto corregido a Español e Inglés.
 4. Responde SOLO en JSON: {{"idioma_detectado": "es", "original_corregido": "texto", "es": "texto", "en": "texto"}}
-Texto: "{texto_original}" """
+Texto: "{texto_original}"
+"""
     try:
         respuesta = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -78,7 +81,7 @@ Texto: "{texto_original}" """
         )
         return json.loads(respuesta.choices[0].message.content)
     except Exception as e:
-        print(f"Error con Groq: {e}", flush=True)
+        print(f"Error con Groq: {e}")
         es = texto_original
         try:
             en = GoogleTranslator(source='auto', target='en').translate(texto_original)
@@ -96,18 +99,18 @@ async def traducir_a_idioma(texto, idioma_destino):
                 raise Exception("Google devolvió error")
             return resultado
         except Exception as e:
-            print(f"Intento {intento+1} Google falló para {idioma_destino}: {e}", flush=True)
+            print(f"Intento {intento+1} Google falló para {idioma_destino}: {e}")
             if intento == 2:
                 try:
                     return MyMemoryTranslator(source='auto', target=idioma_destino).translate(texto)
                 except Exception as e2:
-                    print(f"MyMemory también falló: {e2}", flush=True)
+                    print(f"MyMemory también falló: {e2}")
                     return f"No se pudo traducir a {idioma_destino}."
-            await asyncio.sleep(1.5)
+        await asyncio.sleep(1.5)
 
 @client.event
 async def on_ready():
-    print(f'✅ Bot conectado como {client.user}', flush=True)
+    print(f'✅ Bot conectado como {client.user}')
 
 @client.event
 async def on_message(message):
@@ -119,12 +122,8 @@ async def on_message(message):
             if len(message.content.strip()) < 2:
                 return
             mensajes_diplomacia[message.id] = message.content
-            try:
-                await message.add_reaction('🇪🇸')
-                await message.add_reaction('🇺🇸')
-            except:
-                pass
-        return
+            # YA NO AGREGA EMOJIS AUTOMÁTICAMENTE - Solo escucha reacciones
+            return
 
     partes = message.content.split(' ', 2)
     if len(partes) < 2:
@@ -191,7 +190,6 @@ async def on_message(message):
 3. TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT{mensaje_extra}
 ⚔️ ALIANZA TFT EN ALERTA MÁXIMA
 Código emitido por: {autor.display_name}"""
-
             embed = discord.Embed(description=descripcion, color=0xFF0000)
             embed.set_footer(text=f"🚨 CÓDIGO ROJO TFT | {autor.display_name}")
             canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
@@ -241,7 +239,7 @@ Código emitido por: {autor.display_name}"""
         canal = client.get_channel(ID_CANAL_ANUNCIOS) or message.channel
         msg_publicado = await canal.send("@everyone", embed=embed)
         mensajes_con_banderas[msg_publicado.id] = {"texto_es": es, "tipo": comando}
-        for bandera in BANDERAS.keys():
+        for bandera in ['🇧🇷', '🇫🇷', '🇩🇪', '🇮🇹', '🇷🇺', '🇯🇵', '🇰🇷', '🇨🇳', '🇮🇩']:
             try:
                 await msg_publicado.add_reaction(bandera)
             except:
@@ -269,7 +267,7 @@ Código emitido por: {autor.display_name}"""
         embed.set_footer(text=f"Bufo activado por: {autor.display_name}")
         canal_buff = client.get_channel(ID_CANAL_BUFF) or message.channel
         msg_publicado = await canal_buff.send("@everyone", embed=embed)
-        for bandera in BANDERAS.keys():
+        for bandera in ['🇧🇷', '🇫🇷', '🇩🇪', '🇮🇹', '🇷🇺', '🇯🇵', '🇰🇷', '🇨🇳', '🇮🇩']:
             try:
                 await msg_publicado.add_reaction(bandera)
             except:
@@ -292,6 +290,7 @@ Código emitido por: {autor.display_name}"""
                         embed.set_field_at(0, name="🇲🇽 Español", value=datos['es'], inline=False)
                         embed.set_field_at(1, name="🇺🇸 English", value=datos['en'], inline=False)
                         await msg.edit(embed=embed)
+                        await message.channel.send("✅ Anuncio editado", delete_after=5)
                         return
                 except:
                     pass
@@ -318,7 +317,11 @@ Código emitido por: {autor.display_name}"""
     if comando == "autotraducir":
         if args.lower() == "on":
             flag_mode_channels.add(message.channel.id)
-            await message.channel.send(embed=discord.Embed(title="✅ Modo banderas activado", description="Reaccionaré con 🇪🇸🇺🇸", color=0x00FF00))
+            await message.channel.send(embed=discord.Embed(
+                title="✅ Modo autotraducir activado",
+                description="Reacciona con cualquier bandera para traducir\n🇺🇸🇪🇸 = 20s en canal\nOtros idiomas = DM\n🏳️‍🌈 = Declaración LGBT",
+                color=0x00FF00
+            ))
         elif args.lower() == "off":
             flag_mode_channels.discard(message.channel.id)
             await message.channel.send(embed=discord.Embed(title="❌ Modo desactivado", color=0xFF0000))
@@ -328,11 +331,14 @@ Código emitido por: {autor.display_name}"""
         embed = discord.Embed(title="📋 COMANDOS DISPONIBLES - META BOT", color=0x9B59B6)
         embed.add_field(name="🚨 meta activate @usuario [mensaje]", value="Código de emergencia ES/EN", inline=False)
         embed.add_field(name="🎂 meta cumpleaños @usuario [mensaje]", value="Felicitación ES/EN", inline=False)
-        embed.add_field(name="📢 meta alerta <texto>", value="Alerta ES/EN + banderas", inline=False)
-        embed.add_field(name="⚔️ meta evento <texto>", value="Evento ES/EN + banderas", inline=False)
-        embed.add_field(name="🛎️ meta buffo <texto>", value="Bufo del reino ES/EN", inline=False)
+        embed.add_field(name="📢 meta alerta <texto>", value="Alerta ES/EN + banderas para DM", inline=False)
+        embed.add_field(name="⚔️ meta evento <texto>", value="Evento ES/EN + banderas para DM", inline=False)
+        embed.add_field(name="🛎️ meta buffo <texto>", value="Bufo del reino ES/EN + @everyone + banderas", inline=False)
+        embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio", inline=False)
+        embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot", inline=False)
         embed.add_field(name="🟢 meta ping", value="Verifica si el bot está activo", inline=False)
-        embed.add_field(name="🌐 meta autotraducir on/off", value="Activa modo traducción con banderas", inline=False)
+        embed.add_field(name="🌐 meta autotraducir on/off", value="Modo banderas: ES/EN canal 20s, otros DM", inline=False)
+        embed.add_field(name="🌍 Banderas disponibles", value="🇧🇷🇫🇷🇩🇪🇮🇹🇷🇺🇯🇵🇰🇷🇨🇳🇮🇩🇸🇦🇹🇷🇹🇭🇻🇳🇵🇱\n🏳️‍🌈 Declaración LGBT pública", inline=False)
         embed.set_footer(text="META ESTÁ CONTIGO. UN REINO, UNA ALIANZA, UNA META.")
         await message.channel.send(embed=embed)
         return
@@ -342,29 +348,63 @@ async def on_reaction_add(reaction, user):
     if user.bot:
         return
 
+    # MODO AUTOTRADUCIR - Diplomacia
     if reaction.message.id in mensajes_diplomacia:
         emoji = str(reaction.emoji)
-        if emoji not in ['🇪🇸', '🇺🇸']:
+
+        # BANDERA LGBT - Anuncio público
+        if emoji == '🏳️‍🌈':
+            embed = discord.Embed(
+                title="🏳️‍🌈 ORGULLO TFT 🏳️‍🌈",
+                description=f"{user.mention} ha declarado con orgullo que es parte de la comunidad LGBT+.\n\n**{user.display_name} está orgulloso de ser gay** ❤️🧡💛💚💙💜\n\nEn TFT celebramos la diversidad. UN REINO, UNA ALIANZA, UNA META.",
+                color=0xFF69B4
+            )
+            embed.set_thumbnail(url=user.display_avatar.url)
+            embed.set_footer(text="El amor es amor - Love is love")
+            await reaction.message.channel.send("@everyone", embed=embed)
+            try:
+                await reaction.remove(user)
+            except:
+                pass
             return
+
+        # Solo procesar banderas de idiomas
+        if emoji not in BANDERAS or BANDERAS[emoji] == 'lgbt':
+            return
+
         texto_original = mensajes_diplomacia[reaction.message.id]
-        idioma_destino = 'es' if emoji == '🇪🇸' else 'en'
+        idioma_destino = BANDERAS[emoji]
+
         try:
             await reaction.remove(user)
         except:
             pass
+
         try:
             traduccion = await traducir_a_idioma(texto_original, idioma_destino)
-            embed = discord.Embed(description=f"{emoji} {traduccion}", color=0x00B0F4)
-            await reaction.message.channel.send(embed=embed, delete_after=20)
+
+            # ES/EN = Mensaje en canal por 20 segundos
+            if idioma_destino in ['es', 'en']:
+                flag_emoji = '🇪🇸' if idioma_destino == 'es' else '🇺🇸'
+                embed = discord.Embed(description=f"{flag_emoji} {traduccion}", color=0x00B0F4)
+                await reaction.message.channel.send(embed=embed, delete_after=20)
+            else:
+                # Otros idiomas = DM
+                nombre_idioma = NOMBRES_IDIOMAS.get(idioma_destino, idioma_destino)
+                embed_dm = discord.Embed(title=f"{emoji} Traducción a {nombre_idioma}", color=0x00FF00)
+                embed_dm.add_field(name="Original", value=texto_original, inline=False)
+                embed_dm.add_field(name="Traducción", value=traduccion, inline=False)
+                await user.send(embed=embed_dm)
         except:
             pass
         return
 
+    # BANDERAS EN ANUNCIOS/EVENTOS - Solo DM
     if reaction.message.id not in mensajes_con_banderas:
         return
 
     emoji = str(reaction.emoji)
-    if emoji not in BANDERAS:
+    if emoji not in BANDERAS or BANDERAS[emoji] == 'lgbt':
         return
 
     data = mensajes_con_banderas[reaction.message.id]
@@ -383,22 +423,4 @@ async def on_reaction_add(reaction, user):
     except:
         pass
 
-# ========== LOGIN CON RETRY ANTI-1015 + FLUSH ==========
-if __name__ == "__main__":
-    while True:
-        try:
-            delay = random.randint(10, 20)
-            print(f"Intentando conectar en {delay} seg...", flush=True)
-            time.sleep(delay)
-            client.run(TOKEN)
-        except discord.errors.HTTPException as e:
-            if e.status == 429:
-                print("Rate limit 429 detectado. Esperando 15 min antes de reintentar...", flush=True)
-                time.sleep(900)
-            else:
-                print(f"Error HTTP: {e}", flush=True)
-                raise e
-        except Exception as e:
-            print(f"Otro error: {e}", flush=True)
-            print("Reintentando en 60 seg...", flush=True)
-            time.sleep(60)
+client.run(TOKEN)
