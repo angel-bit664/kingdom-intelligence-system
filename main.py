@@ -6,6 +6,8 @@ import asyncio
 from deep_translator import GoogleTranslator, MyMemoryTranslator
 from groq import Groq
 import json
+import time
+import random
 
 ##====== CONFIG ======
 TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -20,7 +22,7 @@ ID_CANAL_ACTIVATE = 1358237524799131662
 ID_CANAL_BUFF = 1404721557279871056
 ##==================
 
-# ========== WEB SERVER PARA RENDER - NO TOCAR ==========
+# ========== WEB SERVER PARA UPTIMEROBOT ==========
 class PingHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -105,7 +107,6 @@ async def traducir_a_idioma(texto, idioma_destino):
 @client.event
 async def on_ready():
     print(f'✅ Bot conectado como {client.user}')
-    # SELF-PING ELIMINADO
 
 @client.event
 async def on_message(message):
@@ -381,4 +382,22 @@ async def on_reaction_add(reaction, user):
     except:
         pass
 
-client.run(TOKEN)
+# ========== LOGIN CON RETRY ANTI-1015 ==========
+if __name__ == "__main__":
+    while True:
+        try:
+            delay = random.randint(10, 20)
+            print(f"Intentando conectar en {delay} seg...")
+            time.sleep(delay)
+            client.run(TOKEN)
+        except discord.errors.HTTPException as e:
+            if e.status == 429:
+                print("Rate limit 429 detectado. Esperando 15 min antes de reintentar...")
+                time.sleep(900)
+            else:
+                print(f"Error HTTP: {e}")
+                raise e
+        except Exception as e:
+            print(f"Otro error: {e}")
+            print("Reintentando en 60 seg...")
+            time.sleep(60)
