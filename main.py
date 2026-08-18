@@ -7,6 +7,8 @@ from deep_translator import GoogleTranslator, MyMemoryTranslator
 from dotenv import load_dotenv
 from groq import Groq
 import json
+import time
+
 load_dotenv()
 
 ##====== CONFIG ======
@@ -14,7 +16,6 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not TOKEN or not GROQ_API_KEY:
     print("❌ FALTA TOKEN o GROQ_API_KEY en Environment de Render")
-
 groq_client = Groq(api_key=GROQ_API_KEY)
 ID_CANAL_ANUNCIOS = 1358237524249542751
 ID_CANAL_ACTIVATE = 1358237524799131662
@@ -27,6 +28,10 @@ class PingHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b'Kingdom bot is alive!')
+
+    def do_HEAD(self): # <- FIX PA UPTIMEROBOT 501
+        self.send_response(200)
+        self.end_headers()
 
     def log_message(self, format, *args):
         return
@@ -43,35 +48,73 @@ threading.Thread(target=start_web_server, daemon=True).start()
 intents = discord.Intents.default()
 intents.message_content = True
 intents.reactions = True
+intents.members = True # Necesario pa buscar usuarios
 client = discord.Client(intents=intents)
 procesando_activate = set()
-
 BANDERAS = {
-    '🇺🇸': 'en', '🇧🇷': 'pt', '🇫🇷': 'fr', '🇩🇪': 'de', '🇮🇹': 'it',
-    '🇷🇺': 'ru', '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh-CN', '🇸🇦': 'ar',
-    '🇹🇷': 'tr', '🇮🇩': 'id', '🇹🇭': 'th', '🇻🇳': 'vi', '🇵🇱': 'pl',
-    '🏳️‍🌈': 'lgbt' # Bandera especial
+    '🇺🇸': 'en', '🇧🇷': 'pt', '🇫🇷': 'fr', '🇩🇪': 'de', '🇮🇹': 'it', '🇷🇺': 'ru', '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh-CN', '🇸🇦': 'ar', '🇹🇷': 'tr', '🇮🇩': 'id', '🇹🇭': 'th', '🇻🇳': 'vi', '🇵🇱': 'pl', '🏳️‍🌈': 'lgbt'
 }
-
 NOMBRES_IDIOMAS = {
-    'en': 'English', 'pt': 'Português', 'fr': 'Français', 'de': 'Deutsch',
-    'it': 'Italiano', 'ru': 'Русский', 'ja': '日本語', 'ko': '한국어',
-    'zh-CN': '中文', 'ar': 'العربية', 'tr': 'Türkçe', 'id': 'Indonesia',
-    'th': 'ไทย', 'vi': 'Tiếng Việt', 'pl': 'Polski'
+    'en': 'English', 'pt': 'Português', 'fr': 'Français', 'de': 'Deutsch', 'it': 'Italiano', 'ru': 'Русский', 'ja': '日本語', 'ko': '한국어', 'zh-CN': '中文', 'ar': 'العربية', 'tr': 'Türkçe', 'id': 'Indonesia', 'th': 'ไทย', 'vi': 'Tiếng Việt', 'pl': 'Polski'
 }
-
 mensajes_con_banderas = {}
 mensajes_diplomacia = {}
 flag_mode_channels = set()
 
+# ========== SISTEMA AUTOMENSAJE ==========
+automensajes_activos = {} # {user_id: {"mensaje": str, "task": asyncio.Task, "inicio": timestamp}}
+
+async def enviar_automensaje(user_id, mensaje, autor_id):
+    try:
+        user = await client.fetch_user(user_id)
+        autor = await client.fetch_user(autor_id)
+        inicio = time.time()
+
+        while True:
+            # Revisar si ya pasaron 24h
+            if time.time() - inicio >= 86400: # 24 horas
+                if user_id in automensajes_activos:
+                    del automensajes_activos[user_id]
+                try:
+                    await user.send(f"⏰ **Automensaje desactivado automáticamente**\nEl recordatorio de {autor.display_name} terminó después de 24h.")
+                except:
+                    pass
+                break
+
+            # Mandar DM
+            try:
+                embed = discord.Embed(
+                    title="⏰ RECORDATORIO AUTOMÁTICO",
+                    description=f"{mensaje}",
+                    color=0xFF9900
+                )
+                embed.set_footer(text=f"Enviado por: {autor.display_name} | Se repite cada 3h por 24h")
+                await user.send(embed=embed)
+            except discord.Forbidden:
+                # Si no puede mandar DM, cancela
+                if user_id in automensajes_activos:
+                    del automensajes_activos[user_id]
+                try:
+                    await autor.send(f"❌ No pude enviarle DM a {user.display_name}. Tiene DMs cerrados. Automensaje cancelado.")
+                except:
+                    pass
+                break
+
+            # Esperar 3 horas = 10800 segundos
+            await asyncio.sleep(10800)
+
+    except asyncio.CancelledError:
+        # Si se cancela con "automensaje off"
+        pass
+    except Exception as e:
+        print(f"Error en automensaje: {e}")
+    finally:
+        if user_id in automensajes_activos:
+            del automensajes_activos[user_id]
+# =========================================
+
 async def corregir_y_traducir_ia(texto_original):
-    prompt = f"""Eres un asistente para un clan de Rise of Kingdoms.
-1. Detecta el idioma del texto.
-2. Corrige errores ortográficos y gramaticales del texto original.
-3. Traduce el texto corregido a Español e Inglés.
-4. Responde SOLO en JSON: {{"idioma_detectado": "es", "original_corregido": "texto", "es": "texto", "en": "texto"}}
-Texto: "{texto_original}"
-"""
+    prompt = f"""Eres un asistente para un clan de Rise of Kingdoms. 1. Detecta el idioma del texto. 2. Corrige errores ortográficos y gramaticales del texto original. 3. Traduce el texto corregido a Español e Inglés. 4. Responde SOLO en JSON: {{"idioma_detectado": "es", "original_corregido": "texto", "es": "texto", "en": "texto"}} Texto: "{texto_original}" """
     try:
         respuesta = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -116,22 +159,84 @@ async def on_ready():
 async def on_message(message):
     if message.author == client.user:
         return
-
     if not message.content.lower().startswith("meta "):
         if message.channel.id in flag_mode_channels:
             if len(message.content.strip()) < 2:
                 return
             mensajes_diplomacia[message.id] = message.content
-            # YA NO AGREGA EMOJIS AUTOMÁTICAMENTE - Solo escucha reacciones
             return
-
     partes = message.content.split(' ', 2)
     if len(partes) < 2:
         return
-
     comando = partes[1].lower()
     args = partes[2] if len(partes) > 2 else ""
     autor = message.author
+
+    # ========== COMANDO AUTOMENSAJE ==========
+    if comando == "automensaje":
+        args_split = args.split(' ', 1)
+        if not args_split or args_split[0] == "":
+            await message.channel.send("❌ Uso: `meta automensaje on @usuario mensaje` o `meta automensaje off @usuario`")
+            return
+
+        subcomando = args_split[0].lower()
+
+        if subcomando == "on":
+            if not message.mentions:
+                await message.channel.send("❌ Debes mencionar al usuario: `meta automensaje on @usuario mensaje`")
+                return
+
+            usuario = message.mentions[0]
+            texto_mensaje = args_split[1] if len(args_split) > 1 else ""
+
+            # Quitar la mención del texto
+            for mention in [f'<@{usuario.id}>', f'<@!{usuario.id}>']:
+                texto_mensaje = texto_mensaje.replace(mention, '').strip()
+
+            if not texto_mensaje:
+                await message.channel.send("❌ Debes escribir un mensaje: `meta automensaje on @usuario recuerda activar escudo`")
+                return
+
+            # Si ya tiene uno activo, lo cancela y crea nuevo
+            if usuario.id in automensajes_activos:
+                automensajes_activos[usuario.id]["task"].cancel()
+                del automensajes_activos[usuario.id]
+
+            # Crear task
+            task = asyncio.create_task(enviar_automensaje(usuario.id, texto_mensaje, autor.id))
+            automensajes_activos[usuario.id] = {
+                "mensaje": texto_mensaje,
+                "task": task,
+                "inicio": time.time(),
+                "autor": autor.id
+            }
+
+            embed = discord.Embed(
+                title="✅ Automensaje Activado",
+                description=f"Se le enviará DM a {usuario.mention} cada 3 horas por 24h",
+                color=0x00FF00
+            )
+            embed.add_field(name="Mensaje", value=texto_mensaje, inline=False)
+            embed.add_field(name="Duración", value="24 horas / cada 3h", inline=False)
+            embed.set_footer(text=f"Activado por: {autor.display_name}")
+            await message.channel.send(embed=embed)
+
+        elif subcomando == "off":
+            if not message.mentions:
+                await message.channel.send("❌ Debes mencionar al usuario: `meta automensaje off @usuario`")
+                return
+
+            usuario = message.mentions[0]
+            if usuario.id in automensajes_activos:
+                automensajes_activos[usuario.id]["task"].cancel()
+                del automensajes_activos[usuario.id]
+                await message.channel.send(f"🛑 Automensaje para {usuario.mention} desactivado.")
+            else:
+                await message.channel.send(f"⚠️ {usuario.mention} no tiene automensajes activos.")
+        else:
+            await message.channel.send("❌ Usa `on` o `off`: `meta automensaje on @usuario mensaje`")
+        return
+    # =========================================
 
     if comando == "activate":
         if message.author.id in procesando_activate:
@@ -166,11 +271,9 @@ async def on_message(message):
                     await message.channel.send("⏰ Tiempo agotado. Usa meta activate @usuario1 @usuario2 [mensaje]")
                     await msg.delete()
                     return
-
             if not usuarios_mencionados:
                 await message.channel.send("❌ Debes mencionar al menos 1 usuario")
                 return
-
             usuarios_texto = ", ".join([u.mention for u in usuarios_mencionados])
             texto_plural = "ACTÍVENSE" if len(usuarios_mencionados) > 1 else "ACTÍVATE"
             texto_sin = "NO TIENEN" if len(usuarios_mencionados) > 1 else "NO TIENE"
@@ -179,17 +282,7 @@ async def on_message(message):
             if mensaje_custom:
                 datos = await corregir_y_traducir_ia(mensaje_custom)
                 mensaje_extra = f"\n\n💬 MENSAJE / MESSAGE:\n🇲🇽 {datos['es']}\n🇺🇸 {datos['en']}"
-
-            descripcion = f"""🚨 CÓDIGO DE EMERGENCIA TFT 🚨
-⚠️ ALERTA ROJA / RED ALERT ⚠️
-🎯 OBJETIVO / TARGET: {usuarios_texto}
-❌ ESTADO / STATUS: {texto_sin} {texto_escudo} ACTIVO - ZONA DE PELIGRO
-🛡️ PROTOCOLO DE EMERGENCIA / EMERGENCY PROTOCOL:
-1. {texto_plural} INMEDIATAMENTE / CONNECT NOW
-2. ESCUDO 8H YA / 8h SHIELD NOW
-3. TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT{mensaje_extra}
-⚔️ ALIANZA TFT EN ALERTA MÁXIMA
-Código emitido por: {autor.display_name}"""
+            descripcion = f"""🚨 CÓDIGO DE EMERGENCIA TFT 🚨 ⚠️ ALERTA ROJA / RED ALERT ⚠️ 🎯 OBJETIVO / TARGET: {usuarios_texto} ❌ ESTADO / STATUS: {texto_sin} {texto_escudo} ACTIVO - ZONA DE PELIGRO 🛡️ PROTOCOLO DE EMERGENCIA / EMERGENCY PROTOCOL: 1. {texto_plural} INMEDIATAMENTE / CONNECT NOW 2. ESCUDO 8H YA / 8h SHIELD NOW 3. TELEPORT DE EMERGENCIA / EMERGENCY TELEPORT{mensaje_extra} ⚔️ ALIANZA TFT EN ALERTA MÁXIMA Código emitido por: {autor.display_name}"""
             embed = discord.Embed(description=descripcion, color=0xFF0000)
             embed.set_footer(text=f"🚨 CÓDIGO ROJO TFT | {autor.display_name}")
             canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
@@ -208,12 +301,7 @@ Código emitido por: {autor.display_name}"""
         partes_msg = message.content.split()
         mensaje_es = " ".join(partes_msg[3:]).strip() if len(partes_msg) > 3 else "Que tengas un día increíble lleno de alegría."
         datos = await corregir_y_traducir_ia(mensaje_es)
-        descripcion = f"""🎉 FELIZ CUMPLEAÑOS 🎉
-🎯 CUMPLEAÑERO / BIRTHDAY: {usuario_cumple.mention}
-🎁 MENSAJE / MESSAGE:
-🇲🇽 {datos['es']}
-🇺🇸 {datos['en']}
-⚔️ LA FAMILIA TFT TE CELEBRA"""
+        descripcion = f"""🎉 FELIZ CUMPLEAÑOS 🎉 🎯 CUMPLEAÑERO / BIRTHDAY: {usuario_cumple.mention} 🎁 MENSAJE / MESSAGE: 🇲🇽 {datos['es']} 🇺🇸 {datos['en']} ⚔️ LA FAMILIA TFT TE CELEBRA"""
         embed = discord.Embed(description=descripcion, color=0xFFD700)
         canal_cumple = client.get_channel(ID_CANAL_ACTIVATE)
         if canal_cumple:
@@ -330,6 +418,7 @@ Código emitido por: {autor.display_name}"""
     if comando == "ayuda":
         embed = discord.Embed(title="📋 COMANDOS DISPONIBLES - META BOT", color=0x9B59B6)
         embed.add_field(name="🚨 meta activate @usuario [mensaje]", value="Código de emergencia ES/EN", inline=False)
+        embed.add_field(name="⏰ meta automensaje on @usuario <mensaje>", value="DM cada 3h por 24h | Off: `meta automensaje off @usuario`", inline=False)
         embed.add_field(name="🎂 meta cumpleaños @usuario [mensaje]", value="Felicitación ES/EN", inline=False)
         embed.add_field(name="📢 meta alerta <texto>", value="Alerta ES/EN + banderas para DM", inline=False)
         embed.add_field(name="⚔️ meta evento <texto>", value="Evento ES/EN + banderas para DM", inline=False)
@@ -347,11 +436,9 @@ Código emitido por: {autor.display_name}"""
 async def on_reaction_add(reaction, user):
     if user.bot:
         return
-
     # MODO AUTOTRADUCIR - Diplomacia
     if reaction.message.id in mensajes_diplomacia:
         emoji = str(reaction.emoji)
-
         # BANDERA LGBT - Anuncio público
         if emoji == '🏳️‍🌈':
             embed = discord.Embed(
@@ -367,22 +454,17 @@ async def on_reaction_add(reaction, user):
             except:
                 pass
             return
-
         # Solo procesar banderas de idiomas
         if emoji not in BANDERAS or BANDERAS[emoji] == 'lgbt':
             return
-
         texto_original = mensajes_diplomacia[reaction.message.id]
         idioma_destino = BANDERAS[emoji]
-
         try:
             await reaction.remove(user)
         except:
             pass
-
         try:
             traduccion = await traducir_a_idioma(texto_original, idioma_destino)
-
             # ES/EN = Mensaje en canal por 20 segundos
             if idioma_destino in ['es', 'en']:
                 flag_emoji = '🇪🇸' if idioma_destino == 'es' else '🇺🇸'
@@ -398,21 +480,17 @@ async def on_reaction_add(reaction, user):
         except:
             pass
         return
-
     # BANDERAS EN ANUNCIOS/EVENTOS - Solo DM
     if reaction.message.id not in mensajes_con_banderas:
         return
-
     emoji = str(reaction.emoji)
     if emoji not in BANDERAS or BANDERAS[emoji] == 'lgbt':
         return
-
     data = mensajes_con_banderas[reaction.message.id]
     try:
         await reaction.remove(user)
     except:
         pass
-
     try:
         traduccion = await traducir_a_idioma(data['texto_es'], BANDERAS[emoji])
         nombre_idioma = NOMBRES_IDIOMAS.get(BANDERAS[emoji], BANDERAS[emoji])
