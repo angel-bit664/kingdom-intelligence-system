@@ -100,8 +100,8 @@ async def enviar_automensaje(user_id, mensaje, autor_id):
                     pass
                 break
 
-            # Esperar 3 horas = 10800 segundos
-            await asyncio.sleep(10800)
+            # Esperar 8 horas = 28800 segundos
+            await asyncio.sleep(28800)
 
     except asyncio.CancelledError:
         # Si se cancela con "automensaje off"
