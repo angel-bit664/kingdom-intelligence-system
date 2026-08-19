@@ -53,16 +53,100 @@ client = discord.Client(intents=intents)
 procesando_activate = set()
 
 BANDERAS = {
-    '🇺🇸': 'en', '🇧🇷': 'pt', '🇫🇷': 'fr', '🇩🇪': 'de', '🇮🇹': 'it', '🇷🇺': 'ru',
-    '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh-CN', '🇸🇦': 'ar', '🇹🇷': 'tr', '🇮🇩': 'id',
-    '🇹🇭': 'th', '🇻🇳': 'vi', '🇵🇱': 'pl'
+    # Español
+    '🇪🇸': 'es', '🇲🇽': 'es', '🇦🇷': 'es', '🇨🇴': 'es', '🇨🇱': 'es', '🇵🇪': 'es',
+
+    # Inglés
+    '🇺🇸': 'en', '🇬🇧': 'en', '🇦🇺': 'en', '🇨🇦': 'en',
+
+    # Portugués
+    '🇧🇷': 'pt', '🇵🇹': 'pt',
+
+    # Francés
+    '🇫🇷': 'fr', '🇧🇪': 'fr',
+
+    # Alemán
+    '🇩🇪': 'de', '🇦🇹': 'de', '🇨🇭': 'de',
+
+    # Italiano
+    '🇮🇹': 'it',
+
+    # Ruso
+    '🇷🇺': 'ru',
+
+    # Japonés
+    '🇯🇵': 'ja',
+
+    # Coreano
+    '🇰🇷': 'ko',
+
+    # Chino
+    '🇨🇳': 'zh-CN', '🇹🇼': 'zh-TW', '🇭🇰': 'zh-CN',
+
+    # Árabe
+    '🇸🇦': 'ar', '🇪🇬': 'ar', '🇦🇪': 'ar', '🇲🇦': 'ar',
+
+    # Turco
+    '🇹🇷': 'tr',
+
+    # Indonesio
+    '🇮🇩': 'id',
+
+    # Tailandés
+    '🇹🇭': 'th',
+
+    # Vietnamita
+    '🇻🇳': 'vi',
+
+    # Polaco
+    '🇵🇱': 'pl',
+
+    # Holandés
+    '🇳🇱': 'nl',
+
+    # Sueco
+    '🇸🇪': 'sv',
+
+    # Noruego
+    '🇳🇴': 'no',
+
+    # Danés
+    '🇩🇰': 'da',
+
+    # Finlandés
+    '🇫🇮': 'fi',
+
+    # Griego
+    '🇬🇷': 'el',
+
+    # Hebreo
+    '🇮🇱': 'he',
+
+    # Hindi
+    '🇮🇳': 'hi',
+
+    # Ucraniano
+    '🇺🇦': 'uk',
+
+    # Rumano
+    '🇷🇴': 'ro',
+
+    # Checo
+    '🇨🇿': 'cs',
+
+    # Húngaro
+    '🇭🇺': 'hu'
 }
 
 NOMBRES_IDIOMAS = {
-    'en': 'English', 'pt': 'Português', 'fr': 'Français', 'de': 'Deutsch',
-    'it': 'Italiano', 'ru': 'Русский', 'ja': '日本語', 'ko': '한국어',
-    'zh-CN': '中文', 'ar': 'العربية', 'tr': 'Türkçe', 'id': 'Indonesia',
-    'th': 'ไทย', 'vi': 'Tiếng Việt', 'pl': 'Polski'
+    'es': 'Español', 'en': 'English', 'pt': 'Português', 'fr': 'Français',
+    'de': 'Deutsch', 'it': 'Italiano', 'ru': 'Русский', 'ja': '日本語',
+    'ko': '한국어', 'zh-CN': '中文简体', 'zh-TW': '中文繁體', 'ar': 'العربية',
+    'tr': 'Türkçe', 'id': 'Indonesia', 'th': 'ไทย', 'vi': 'Tiếng Việt',
+    'pl': 'Polski', 'nl': 'Nederlands', 'sv': 'Svenska', 'no': 'Norsk',
+    'da': 'Dansk', 'fi': 'Suomi', 'el': 'Ελληνικά', 'he': 'עברית',
+    'hi': 'हिन्दी', 'uk': 'Українська', 'ro': 'Română', 'cs': 'Čeština',
+    'hu': 'Magyar'
 }
 
 mensajes_con_banderas = {}
@@ -500,7 +584,7 @@ async def on_message(message):
         embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot | Max 50", inline=False)
         embed.add_field(name="🟢 meta ping", value="Verifica latencia", inline=False)
         embed.add_field(name="🌐 Traductor", value="Siempre activo en #oficiales, #diplomacia y #bitácora. En otros canales usa `meta autotraducir on`", inline=False)
-        embed.add_field(name="🌍 Banderas", value="🇧🇷🇫🇷🇩🇪🇮🇹🇷🇺🇯🇵🇰🇷🇨🇳🇮🇩🇸🇦🇹🇷🇹🇭🇻🇳🇵🇱", inline=False)
+        embed.add_field(name="🌍 Banderas", value="🇪🇸🇲🇽🇺🇸🇬🇧🇧🇷🇵🇹🇫🇷🇩🇪🇮🇹🇷🇺🇯🇵🇰🇷🇨🇳🇸🇦🇹🇷🇮🇩🇹🇭🇻🇳🇵🇱", inline=False)
         embed.set_footer(text="META ESTÁ CONTIGO. UN REINO, UNA ALIANZA, UNA META")
         await message.channel.send(embed=embed)
         return
