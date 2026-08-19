@@ -69,7 +69,7 @@ mensajes_con_banderas = {}
 mensajes_diplomacia = {}
 flag_mode_channels = set(CANALES_TRADUCCION_SIEMPRE_ACTIVOS)
 automensajes_activos = {}
-ultimo_anuncio = {} # Guarda último anuncio por canal pa meta editar
+ultimo_anuncio = {}
 
 # ========== LIMPIEZA RAM CADA 48H ==========
 async def limpieza_memoria_48h():
@@ -172,7 +172,7 @@ async def on_ready():
             canal = client.get_channel(channel_id)
             if canal:
                 count = 0
-                async for msg in canal.history(limit=50):
+                async for msg in canal.history(limit=50): # 50 MENSAJES
                     if not msg.author.bot and len(msg.content.strip()) > 2:
                         mensajes_diplomacia[msg.id] = msg.content
                         count += 1
@@ -321,7 +321,6 @@ async def on_message(message):
             procesando_activate.discard(message.author.id)
         return
 
-    # ========== COMANDO CUMPLEAÑOS ==========
     if comando == "cumpleaños":
         if not message.mentions:
             await message.channel.send("❌ Menciona al usuario: `meta cumpleaños @usuario [mensaje]`")
@@ -402,7 +401,6 @@ async def on_message(message):
                 pass
         return
 
-    # ========== COMANDO EDITAR ==========
     if comando == "editar":
         if not args:
             await message.channel.send("❌ Escribe el nuevo texto: `meta editar nuevo texto`")
@@ -436,7 +434,6 @@ async def on_message(message):
             await message.channel.send("❌ No se pudo editar el anuncio.")
         return
 
-    # ========== COMANDO LIMPIA ==========
     if comando == "limpia":
         cantidad = 10
         if args and args.isdigit():
@@ -488,9 +485,17 @@ async def on_reaction_add(reaction, user):
         return
 
     # MODO AUTOTRADUCIR - Diplomacia/Oficiales/Bitácora
-    if reaction.message.id in mensajes_diplomacia:
+    if reaction.message.channel.id in flag_mode_channels:
         emoji = str(reaction.emoji)
         if emoji not in BANDERAS:
+            return
+
+        # SI NO ESTÁ EN MEMORIA, IGNORA - NO FETCH PA NO GASTAR RAM
+        if reaction.message.id not in mensajes_diplomacia:
+            try:
+                await reaction.remove(user)
+            except:
+                pass
             return
 
         texto_original = mensajes_diplomacia[reaction.message.id]
@@ -511,8 +516,8 @@ async def on_reaction_add(reaction, user):
             else:
                 nombre = NOMBRES_IDIOMAS.get(idioma_destino, idioma_destino)
                 embed_dm = discord.Embed(title=f"{emoji} Traducción a {nombre}", color=0x00FF00)
-                embed_dm.add_field(name="Original", value=texto_original, inline=False)
-                embed_dm.add_field(name="Traducción", value=traduccion, inline=False)
+                embed_dm.add_field(name="Original", value=texto_original[:1024], inline=False)
+                embed_dm.add_field(name="Traducción", value=traduccion[:1024], inline=False)
                 await user.send(embed=embed_dm)
         except:
             pass
