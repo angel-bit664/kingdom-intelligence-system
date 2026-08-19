@@ -172,7 +172,7 @@ async def on_ready():
             canal = client.get_channel(channel_id)
             if canal:
                 count = 0
-                async for msg in canal.history(limit=50): # 50 MENSAJES
+                async for msg in canal.history(limit=50):
                     if not msg.author.bot and len(msg.content.strip()) > 2:
                         mensajes_diplomacia[msg.id] = msg.content
                         count += 1
@@ -202,6 +202,31 @@ async def on_message(message):
     comando = partes[1].lower()
     args = partes[2] if len(partes) > 2 else ""
     autor = message.author
+
+    if comando == "autotraducir":
+        if not args:
+            estado = "✅ Activado" if message.channel.id in flag_mode_channels else "❌ Desactivado"
+            await message.channel.send(f"🌐 **Autotraducir en este canal:** {estado}\n\nUsa: `meta autotraducir on` o `meta autotraducir off`")
+            return
+
+        subcomando = args.lower()
+
+        if subcomando == "on":
+            if message.channel.id in flag_mode_channels:
+                await message.channel.send("⚠️ El autotraducir ya está activo en este canal.")
+            else:
+                flag_mode_channels.add(message.channel.id)
+                await message.channel.send("✅ **Autotraducir ACTIVADO**\nReacciona con 🇺🇸🇧🇷🇫🇷 pa traducir mensajes. ES/EN = 20s en canal, otros = DM")
+
+        elif subcomando == "off":
+            if message.channel.id in CANALES_TRADUCCION_SIEMPRE_ACTIVOS:
+                await message.channel.send("❌ No puedes desactivar oficiales/diplomacia/bitácora. Esos siempre están activos.")
+            elif message.channel.id in flag_mode_channels:
+                flag_mode_channels.remove(message.channel.id)
+                await message.channel.send("🛑 **Autotraducir DESACTIVADO**\nYa no guardará mensajes de este canal.")
+            else:
+                await message.channel.send("⚠️ El autotraducir ya estaba desactivado aquí.")
+        return
 
     if comando == "automensaje":
         args_split = args.split(' ', 1)
@@ -466,6 +491,7 @@ async def on_message(message):
         embed.add_field(name="🚨 meta activate @usuario [mensaje]", value="Código de emergencia ES/EN", inline=False)
         embed.add_field(name="⏰ meta automensaje on @usuario [horas] <mensaje>", value="DM cada X horas por 24h | Default 8h", inline=False)
         embed.add_field(name="🛑 meta automensaje off @usuario", value="Cancela automensaje", inline=False)
+        embed.add_field(name="🌐 meta autotraducir on/off", value="Activa/desactiva el traductor con banderas en el canal actual", inline=False)
         embed.add_field(name="🎂 meta cumpleaños @usuario [mensaje]", value="Felicitación ES/EN + banderas", inline=False)
         embed.add_field(name="📢 meta alerta <texto>", value="Alerta ES/EN + banderas", inline=False)
         embed.add_field(name="⚔️ meta evento <texto>", value="Evento ES/EN + banderas", inline=False)
@@ -473,79 +499,80 @@ async def on_message(message):
         embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio del bot", inline=False)
         embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot | Max 50", inline=False)
         embed.add_field(name="🟢 meta ping", value="Verifica latencia", inline=False)
-        embed.add_field(name="🌐 Traductor", value="Siempre activo en #oficiales, #diplomacia y #bitácora. Reacciona con bandera. ES/EN = 20s en canal, otros = DM", inline=False)
+        embed.add_field(name="🌐 Traductor", value="Siempre activo en #oficiales, #diplomacia y #bitácora. En otros canales usa `meta autotraducir on`", inline=False)
         embed.add_field(name="🌍 Banderas", value="🇧🇷🇫🇷🇩🇪🇮🇹🇷🇺🇯🇵🇰🇷🇨🇳🇮🇩🇸🇦🇹🇷🇹🇭🇻🇳🇵🇱", inline=False)
         embed.set_footer(text="META ESTÁ CONTIGO. UN REINO, UNA ALIANZA, UNA META")
         await message.channel.send(embed=embed)
         return
 
 @client.event
-async def on_reaction_add(reaction, user):
-    if user.bot:
+async def on_raw_reaction_add(payload):
+    if payload.user_id == client.user.id:
         return
 
-    # MODO AUTOTRADUCIR - Diplomacia/Oficiales/Bitácora
-    if reaction.message.channel.id in flag_mode_channels:
-        emoji = str(reaction.emoji)
-        if emoji not in BANDERAS:
-            return
-
-        # SI NO ESTÁ EN MEMORIA, IGNORA - NO FETCH PA NO GASTAR RAM
-        if reaction.message.id not in mensajes_diplomacia:
-            try:
-                await reaction.remove(user)
-            except:
-                pass
-            return
-
-        texto_original = mensajes_diplomacia[reaction.message.id]
-        idioma_destino = BANDERAS[emoji]
-
-        try:
-            await reaction.remove(user)
-        except:
-            pass
-
-        try:
-            traduccion = await traducir_a_idioma(texto_original, idioma_destino)
-
-            if idioma_destino in ['es', 'en']:
-                flag_emoji = '🇪🇸' if idioma_destino == 'es' else '🇺🇸'
-                embed = discord.Embed(description=f"{flag_emoji} {traduccion}", color=0x00B0F4)
-                await reaction.message.channel.send(embed=embed, delete_after=20)
-            else:
-                nombre = NOMBRES_IDIOMAS.get(idioma_destino, idioma_destino)
-                embed_dm = discord.Embed(title=f"{emoji} Traducción a {nombre}", color=0x00FF00)
-                embed_dm.add_field(name="Original", value=texto_original[:1024], inline=False)
-                embed_dm.add_field(name="Traducción", value=traduccion[:1024], inline=False)
-                await user.send(embed=embed_dm)
-        except:
-            pass
+    if payload.channel_id not in flag_mode_channels:
         return
 
-    # BANDERAS EN ANUNCIOS/EVENTOS - Solo DM
-    if reaction.message.id not in mensajes_con_banderas:
-        return
-
-    emoji = str(reaction.emoji)
+    emoji = str(payload.emoji)
     if emoji not in BANDERAS:
         return
 
-    data = mensajes_con_banderas[reaction.message.id]
+    channel = client.get_channel(payload.channel_id)
+    try:
+        message = await channel.fetch_message(payload.message_id)
+    except:
+        return
+
+    # SOLO TRADUCE SI EL MENSAJE ESTÁ ENTRE LOS ÚLTIMOS 50
+    ultimos_50 = [msg async for msg in channel.history(limit=50)]
+    if message.id not in [m.id for m in ultimos_50]:
+        try:
+            user = await client.fetch_user(payload.user_id)
+            await message.remove_reaction(payload.emoji, user)
+        except:
+            pass
+        return
+
+    if message.author.bot or len(message.content.strip()) < 2:
+        return
+
+    texto_original = message.content
+    idioma_destino = BANDERAS[emoji]
 
     try:
-        await reaction.remove(user)
+        user = await client.fetch_user(payload.user_id)
+        await message.remove_reaction(payload.emoji, user)
     except:
         pass
 
     try:
-        traduccion = await traducir_a_idioma(data['texto_es'], BANDERAS[emoji])
-        nombre = NOMBRES_IDIOMAS.get(BANDERAS[emoji], BANDERAS[emoji])
-        embed_dm = discord.Embed(title=f"{emoji} Traducción a {nombre}", color=0x00FF00)
-        embed_dm.add_field(name="Original", value=data['texto_es'], inline=False)
-        embed_dm.add_field(name="Traducción", value=traduccion, inline=False)
-        await user.send(embed=embed_dm)
+        traduccion = await traducir_a_idioma(texto_original, idioma_destino)
+
+        if idioma_destino in ['es', 'en']:
+            flag_emoji = '🇪🇸' if idioma_destino == 'es' else '🇺🇸'
+            embed = discord.Embed(description=f"{flag_emoji} {traduccion}", color=0x00B0F4)
+            await channel.send(embed=embed, delete_after=20)
+        else:
+            nombre = NOMBRES_IDIOMAS.get(idioma_destino, idioma_destino)
+            embed_dm = discord.Embed(title=f"{emoji} Traducción a {nombre}", color=0x00FF00)
+            embed_dm.add_field(name="Original", value=texto_original[:1024], inline=False)
+            embed_dm.add_field(name="Traducción", value=traduccion[:1024], inline=False)
+            await user.send(embed=embed_dm)
     except:
         pass
+
+    # BANDERAS EN ANUNCIOS/EVENTOS - Solo DM
+    if payload.message_id in mensajes_con_banderas:
+        data = mensajes_con_banderas[payload.message_id]
+        try:
+            traduccion = await traducir_a_idioma(data['texto_es'], BANDERAS[emoji])
+            nombre = NOMBRES_IDIOMAS.get(BANDERAS[emoji], BANDERAS[emoji])
+            embed_dm = discord.Embed(title=f"{emoji} Traducción a {nombre}", color=0x00FF00)
+            embed_dm.add_field(name="Original", value=data['texto_es'], inline=False)
+            embed_dm.add_field(name="Traducción", value=traduccion, inline=False)
+            user = await client.fetch_user(payload.user_id)
+            await user.send(embed=embed_dm)
+        except:
+            pass
 
 client.run(TOKEN)
