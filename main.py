@@ -1,13 +1,11 @@
 import discord
 import asyncio
 import re
-import json
 import os
-import openai
+from deep_translator import GoogleTranslator
 from datetime import datetime
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
 ID_CANAL_ACTIVATE = 123456789 # Tu ID
 ID_CANAL_ANUNCIOS = 123456789 # Tu ID
@@ -37,6 +35,7 @@ NOMBRES_IDIOMAS = {
     'id': 'Indonesio', 'en': 'Inglés', 'es': 'Español'
 }
 
+# TRADUCTOR GRATIS CON deep-translator - SIN API KEY
 async def corregir_y_traducir_ia(texto_original: str):
     texto_limpio = re.sub(r'[@#]', '', texto_original)
     texto_limpio = re.sub(r'\s+', ' ', texto_limpio).strip()
@@ -45,43 +44,35 @@ async def corregir_y_traducir_ia(texto_original: str):
         return {'es': texto_original, 'en': '⚠️ Message too short'}
 
     try:
-        response = await asyncio.wait_for(
-            openai.ChatCompletion.acreate(
-                model="gpt-4o-mini",
-                messages=[{
-                    "role": "user",
-                    "content": f"Corrige español y traduce a inglés. Solo JSON: {{\"es\": \"...\", \"en\": \"...\"}}. Texto: {texto_limpio}"
-                }],
-                temperature=0.1,
-                response_format={"type": "json_object"}
-            ),
-            timeout=8.0
-        )
-        datos = json.loads(response.choices[0].message.content)
-        if any(x in datos['en'].lower() for x in ['error 500', 'server error', 'there was an error']):
-            raise Exception("API devolvió error")
-        return {'es': datos['es'][:1024], 'en': datos['en'][:1024]}
-    except Exception as e:
-        print(f"[IA FAIL] {datetime.now()} | {e}")
-        return {'es': texto_limpio, 'en': '⚠️ Auto-translation failed. Use ES text above.'}
+        # Traduce usando GoogleTranslator gratis
+        traducido = GoogleTranslator(source='auto', target='en').translate(texto_limpio)
 
+        # FILTRO ANTI ERROR 500
+        if not traducido or any(x in traducido.lower() for x in ['error 500', 'server error', 'there was an error']):
+            raise Exception("Deep-translator devolvió error o vacío")
+
+        return {
+            'es': texto_limpio[:1024],
+            'en': traducido[:1024]
+        }
+    except Exception as e:
+        print(f"[DEEP-TRANSLATOR FAIL] {datetime.now()} | {e}")
+        return {
+            'es': texto_limpio,
+            'en': '⚠️ Auto-translation failed. Use ES text above.'
+        }
+
+# TRADUCTOR PA BANDERAS
 async def traducir_a_idioma(texto, idioma_destino):
     try:
-        response = await asyncio.wait_for(
-            openai.ChatCompletion.acreate(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": f"Traduce a {idioma_destino}. Solo texto: {texto}"}],
-                temperature=0.1
-            ),
-            timeout=8.0
-        )
-        return response.choices[0].message.content[:1024]
+        traducido = GoogleTranslator(source='auto', target=idioma_destino).translate(texto)
+        return traducido[:1024] if traducido else "⚠️ Translation failed"
     except:
         return "⚠️ Translation failed"
 
 @client.event
 async def on_ready():
-    print(f'{client.user} conectado. Banderas ocultas ON.')
+    print(f'{client.user} conectado. Banderas ocultas ON. Deep-translator activo.')
 
 @client.event
 async def on_message(message):
@@ -156,7 +147,6 @@ async def on_message(message):
         msg_publicado = await canal.send(content=f"{usuario.mention} @everyone", embed=embed)
         mensajes_con_banderas[msg_publicado.id] = {"texto_es": mensaje_es, "tipo": "cumpleaños"}
         ultimo_anuncio[message.channel.id] = msg_publicado
-        # YA NO PONE BANDERAS AUTOMÁTICAS
         return
 
     # EVENTO / ALERTA
@@ -184,7 +174,6 @@ async def on_message(message):
         msg_publicado = await canal.send("@everyone", embed=embed)
         mensajes_con_banderas[msg_publicado.id] = {"texto_es": datos['es'], "tipo": comando}
         ultimo_anuncio[message.channel.id] = msg_publicado
-        # YA NO PONE BANDERAS AUTOMÁTICAS
         return
 
     # BUFFO
@@ -204,7 +193,6 @@ async def on_message(message):
         msg_publicado = await canal_buff.send("@everyone", embed=embed)
         mensajes_con_banderas[msg_publicado.id] = {"texto_es": datos['es'], "tipo": "buffo"}
         ultimo_anuncio[message.channel.id] = msg_publicado
-        # YA NO PONE BANDERAS AUTOMÁTICAS
         return
 
     # EDITAR
@@ -283,8 +271,6 @@ async def on_raw_reaction_add(payload):
     if payload.user_id == client.user.id: return
     emoji = str(payload.emoji)
     if emoji not in BANDERAS: return
-
-    # ANTI-SPAM: Si el user ya está traduciendo, ignora
     if payload.user_id in traduciendo_users: return
     traduciendo_users.add(payload.user_id)
 
@@ -293,7 +279,6 @@ async def on_raw_reaction_add(payload):
         if channel is None: return
         message = await channel.fetch_message(payload.message_id)
 
-        # SOLO TRADUCE SI ESTÁ EN LOS ÚLTIMOS 50
         ultimos_50 = [msg async for msg in channel.history(limit=50)]
         if message.id not in [m.id for m in ultimos_50]:
             try:
@@ -302,13 +287,11 @@ async def on_raw_reaction_add(payload):
             except: pass
             return
 
-        # QUITA LA REACCIÓN DEL USER PA QUE PUEDA USARLA OTRA VEZ
         try:
             user = await client.fetch_user(payload.user_id)
             await message.remove_reaction(payload.emoji, user)
         except: pass
 
-        # TRADUCE ANUNCIOS DEL BOT
         if payload.message_id in mensajes_con_banderas:
             data = mensajes_con_banderas[payload.message_id]
             traduccion = await traducir_a_idioma(data['texto_es'], BANDERAS[emoji])
@@ -319,7 +302,6 @@ async def on_raw_reaction_add(payload):
             await user.send(embed=embed_dm)
             return
 
-        # TRADUCE MENSAJES NORMALES EN CANALES ACTIVOS
         if payload.channel_id in flag_mode_channels:
             if message.author.bot or len(message.content.strip()) < 2: return
             traduccion = await traducir_a_idioma(message.content, BANDERAS[emoji])
@@ -337,8 +319,23 @@ async def on_raw_reaction_add(payload):
     except Exception as e:
         print(f"[ERROR REACCIÓN] {e}")
     finally:
-        # Quita el lock después de 3s pa evitar spam
         await asyncio.sleep(3)
         traduciendo_users.discard(payload.user_id)
+
+# PUERTO FAKE PA RENDER - EVITA QUE TE TUMBE EL BOT
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'Bot alive')
+
+def run_server():
+    server = HTTPServer(('0.0.0.0', 10000), Handler)
+    server.serve_forever()
+
+threading.Thread(target=run_server, daemon=True).start()
 
 client.run(TOKEN)
