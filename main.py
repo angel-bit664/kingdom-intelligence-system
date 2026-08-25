@@ -1,27 +1,24 @@
 import discord
-from discord import app_commands
 from discord.ext import commands, tasks
 import asyncio
 import re
 import os
-import json
 import sqlite3
 import time
 import logging
 from logging.handlers import RotatingFileHandler
 from deep_translator import GoogleTranslator, MyMemoryTranslator
-from datetime import datetime, timedelta
+from datetime import datetime
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from collections import defaultdict, deque
+from collections import defaultdict
 import hashlib
-from typing import Dict, Set, Optional
+from typing import Dict, Optional
 import psutil
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-GUILD_ID = None
 
-# LOGGING PRO
+# LOGGING
 log = logging.getLogger('META_BOT')
 log.setLevel(logging.INFO)
 handler = RotatingFileHandler('bot.log', maxBytes=2*1024*1024, backupCount=1)
@@ -38,18 +35,15 @@ ID_CANAL_DIPLOMACIA = 1358237524799131664
 ID_CANAL_GENERAL = 1358237524799131662
 
 CANALES_AUTOTRADUCIR_DEFAULT = [
-    ID_CANAL_OFICIALES,
-    ID_CANAL_BITACORA,
-    ID_CANAL_DIPLOMACIA,
-    ID_CANAL_ANUNCIOS,
-    ID_CANAL_GENERAL
+    ID_CANAL_OFICIALES, ID_CANAL_BITACORA, ID_CANAL_DIPLOMACIA,
+    ID_CANAL_ANUNCIOS, ID_CANAL_GENERAL
 ]
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.reactions = True
 intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents, max_messages=1000)
+bot = commands.Bot(command_prefix="meta ", intents=intents, max_messages=1000, help_command=None)
 
 # DB SQLITE
 def init_db():
@@ -59,17 +53,14 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS config
                     (guild_id INTEGER, user_id INTEGER, idioma TEXT, PRIMARY KEY (guild_id, user_id))''')
     conn.execute('''CREATE TABLE IF NOT EXISTS canales_activos (channel_id INTEGER PRIMARY KEY)''')
-
-    # AUTO-ACTIVAR CANALES POR DEFAULT SI NO EXISTEN
     for canal_id in CANALES_AUTOTRADUCIR_DEFAULT:
         conn.execute('INSERT OR IGNORE INTO canales_activos VALUES (?)', (canal_id,))
-
     conn.commit()
     return conn
 
 db = init_db()
 
-# SISTEMAS V5
+# SISTEMAS
 class CircuitBreaker:
     def __init__(self, fail_max=5, reset_timeout=30):
         self.fail_max = fail_max
@@ -204,17 +195,10 @@ async def translation_worker():
 
 @bot.event
 async def on_ready():
-    log.info(f'{bot.user} V5 GOD TIER ON - Autotraducir activo en 5 canales')
+    log.info(f'{bot.user} V5 PREFIX META ON - Autotraducir activo en 5 canales')
     for _ in range(5):
         bot.loop.create_task(translation_worker())
     limpiar_db_old.start()
-    try:
-        if GUILD_ID:
-            await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-        else:
-            await bot.tree.sync()
-    except Exception as e:
-        log.error(f'Sync error: {e}')
 
 @tasks.loop(hours=6)
 async def limpiar_db_old():
@@ -229,62 +213,77 @@ def tiene_cooldown(user_id: int) -> bool:
     user_cooldowns[user_id] = ahora
     return False
 
-# COMANDOS
-@bot.tree.command(name="activate", description="🚨 Código de emergencia TFT")
-async def activate(interaction: discord.Interaction, usuario: discord.Member, mensaje: str = ""):
-    if tiene_cooldown(interaction.user.id):
-        return await interaction.response.send_message("⏳ Espera 2.5s", ephemeral=True)
+# COMANDOS CON PREFIX "meta"
+@bot.command(name="ping")
+async def ping(ctx):
+    await ctx.send(f"🟢 {round(bot.latency*1000)}ms")
+
+@bot.command(name="health")
+async def health(ctx):
+    uptime = int(time.time() - stats['inicio'])
+    ram = psutil.Process().memory_info().rss / 1024 / 1024
+    embed = discord.Embed(title="🟢 META BOT HEALTH", color=0x00FF00)
+    embed.add_field(name="Uptime", value=f"{uptime//3600}h {(uptime%3600)//60}m", inline=True)
+    embed.add_field(name="RAM", value=f"{ram:.1f}MB / 512MB", inline=True)
+    embed.add_field(name="Latencia", value=f"{round(bot.latency*1000)}ms", inline=True)
+    embed.add_field(name="Traducidas", value=str(stats['traducidas']), inline=True)
+    embed.add_field(name="Comandos", value=str(stats['comandos']), inline=True)
+    embed.add_field(name="Errores", value=str(stats['errores']), inline=True)
+    embed.add_field(name="Circuit Breaker", value=google_cb.state, inline=True)
+    embed.add_field(name="Queue", value=f"{translation_queue.qsize()}/100", inline=True)
+    await ctx.send(embed=embed)
+
+@bot.command(name="activate")
+async def activate(ctx, usuario: discord.Member, *, mensaje=""):
+    if tiene_cooldown(ctx.author.id):
+        return await ctx.send("⏳ Espera 2.5s", delete_after=3)
     stats['comandos'] += 1
 
-    await interaction.response.defer()
     texto_en = await traducir_seguro_v5(mensaje, 'en') if mensaje else ""
     mensaje_extra = f"\n\n💬 MENSAJE:\n🇲🇽 {mensaje}\n🇺🇸 {texto_en}" if mensaje else ""
     descripcion = f"🚨 CÓDIGO DE EMERGENCIA TFT 🚨\n⚠️ ALERTA ROJA\n🎯 OBJETIVO: {usuario.mention}\n❌ ESTADO: SIN ESCUDO ACTIVO\n🛡️ PROTOCOLO: 1. MUÉVETE YA 2. ESCUDO 8H 3. TELEPORT{mensaje_extra}"[:4096]
 
     embed = discord.Embed(description=descripcion, color=0xFF0000)
-    canal = bot.get_channel(ID_CANAL_ACTIVATE) or interaction.channel
+    canal = bot.get_channel(ID_CANAL_ACTIVATE) or ctx.channel
     await canal.send(content=usuario.mention, embed=embed)
-    await interaction.followup.send("✅ Alerta enviada", ephemeral=True)
+    await ctx.message.add_reaction("✅")
 
-@bot.tree.command(name="alerta", description="📢 Alerta bilingüe")
-async def alerta(interaction: discord.Interaction, texto: str):
-    if tiene_cooldown(interaction.user.id):
-        return await interaction.response.send_message("⏳ Espera 2.5s", ephemeral=True)
+@bot.command(name="alerta")
+async def alerta(ctx, *, texto: str):
+    if tiene_cooldown(ctx.author.id):
+        return await ctx.send("⏳ Espera 2.5s", delete_after=3)
     stats['comandos'] += 1
 
-    await interaction.response.defer()
     texto_en = await traducir_seguro_v5(texto, 'en')
     embed = discord.Embed(title="🚨 ALERTA", color=0x3498DB)
     embed.add_field(name="🇲🇽 Español", value=texto[:1024], inline=False)
     embed.add_field(name="🇺🇸 English", value=texto_en, inline=False)
 
-    canal = bot.get_channel(ID_CANAL_ANUNCIOS) or interaction.channel
+    canal = bot.get_channel(ID_CANAL_ANUNCIOS) or ctx.channel
     await canal.send("@everyone", embed=embed)
-    await interaction.followup.send("✅ Publicada", ephemeral=True)
+    await ctx.message.add_reaction("✅")
 
-@bot.tree.command(name="buffo", description="🛎️ Activa bufo")
-async def buffo(interaction: discord.Interaction, texto: str):
-    if tiene_cooldown(interaction.user.id):
-        return await interaction.response.send_message("⏳ Espera 2.5s", ephemeral=True)
+@bot.command(name="buffo")
+async def buffo(ctx, *, texto: str):
+    if tiene_cooldown(ctx.author.id):
+        return await ctx.send("⏳ Espera 2.5s", delete_after=3)
     stats['comandos'] += 1
 
-    await interaction.response.defer()
     texto_en = await traducir_seguro_v5(texto, 'en')
     embed = discord.Embed(title="🛎️ BUFO ACTIVADO", color=0x9B59B6)
     embed.add_field(name="🇲🇽 Español", value=f"✅ {texto[:1024]}", inline=False)
     embed.add_field(name="🇺🇸 English", value=f"✅ {texto_en}", inline=False)
 
-    canal = bot.get_channel(ID_CANAL_BUFF) or interaction.channel
+    canal = bot.get_channel(ID_CANAL_BUFF) or ctx.channel
     await canal.send("@everyone", embed=embed)
-    await interaction.followup.send("✅ Activado", ephemeral=True)
+    await ctx.message.add_reaction("✅")
 
-@bot.tree.command(name="cumpleaños", description="🎂 Felicita a alguien")
-async def cumpleaños(interaction: discord.Interaction, usuario: discord.Member, mensaje: str = ""):
-    if tiene_cooldown(interaction.user.id):
-        return await interaction.response.send_message("⏳ Espera 2.5s", ephemeral=True)
+@bot.command(name="cumpleaños")
+async def cumpleaños(ctx, usuario: discord.Member, *, mensaje=""):
+    if tiene_cooldown(ctx.author.id):
+        return await ctx.send("⏳ Espera 2.5s", delete_after=3)
     stats['comandos'] += 1
 
-    await interaction.response.defer()
     if mensaje:
         texto_en = await traducir_seguro_v5(mensaje, 'en')
         mensaje_es, mensaje_en = mensaje, texto_en
@@ -297,46 +296,31 @@ async def cumpleaños(interaction: discord.Interaction, usuario: discord.Member,
     embed.add_field(name="🇺🇸 English", value=mensaje_en, inline=False)
     embed.set_thumbnail(url=usuario.display_avatar.url)
 
-    canal = bot.get_channel(ID_CANAL_ANUNCIOS) or interaction.channel
+    canal = bot.get_channel(ID_CANAL_ANUNCIOS) or ctx.channel
     await canal.send(content=f"{usuario.mention} @everyone", embed=embed)
-    await interaction.followup.send("✅ Enviado", ephemeral=True)
+    await ctx.message.add_reaction("✅")
 
-@bot.tree.command(name="ping", description="🟢 Latencia")
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message(f"🟢 {round(bot.latency*1000)}ms", ephemeral=True)
+@bot.command(name="idioma")
+async def idioma(ctx, *, idioma_nuevo: str):
+    idioma_lower = idioma_nuevo.lower()
+    codigos = {v.lower(): k for k, v in NOMBRES_IDIOMAS.items()}
+    if idioma_lower not in codigos:
+        return await ctx.send(f"❌ Idioma no válido. Usa: {', '.join(NOMBRES_IDIOMAS.values())}")
 
-@bot.tree.command(name="health", description="🟢 Estado del bot")
-async def health(interaction: discord.Interaction):
-    uptime = int(time.time() - stats['inicio'])
-    ram = psutil.Process().memory_info().rss / 1024
-    embed = discord.Embed(title="🟢 META BOT HEALTH", color=0x00FF00)
-    embed.add_field(name="Uptime", value=f"{uptime//3600}h {(uptime%3600)//60}m", inline=True)
-    embed.add_field(name="RAM", value=f"{ram:.1f}MB / 512MB", inline=True)
-    embed.add_field(name="Latencia", value=f"{round(bot.latency*1000)}ms", inline=True)
-    embed.add_field(name="Traducidas", value=str(stats['traducidas']), inline=True)
-    embed.add_field(name="Comandos", value=str(stats['comandos']), inline=True)
-    embed.add_field(name="Errores", value=str(stats['errores']), inline=True)
-    embed.add_field(name="Circuit Breaker", value=google_cb.state, inline=True)
-    embed.add_field(name="Queue", value=f"{translation_queue.qsize()}/100", inline=True)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-@bot.tree.command(name="idioma", description="🌍 Configura tu idioma preferido")
-@app_commands.choices(idioma=[app_commands.Choice(name=v, value=k) for k, v in NOMBRES_IDIOMAS.items()])
-async def idioma(interaction: discord.Interaction, idioma: str):
-    db.execute('INSERT OR REPLACE INTO config VALUES (?,?,?)',
-               (interaction.guild_id, interaction.user.id, idioma))
+    codigo = codigos[idioma_lower]
+    db.execute('INSERT OR REPLACE INTO config VALUES (?,?,?)', (ctx.guild.id, ctx.author.id, codigo))
     db.commit()
-    await interaction.response.send_message(f"✅ Ahora te autotraduzco todo a {NOMBRES_IDIOMAS[idioma]}", ephemeral=True)
+    await ctx.send(f"✅ Ahora te autotraduzco todo a {NOMBRES_IDIOMAS[codigo]}")
 
-@bot.tree.command(name="autotraducir", description="🌍 Toggle autotraducir en este canal")
-@app_commands.default_permissions(manage_channels=True)
-async def autotraducir_cmd(interaction: discord.Interaction, estado: bool):
-    if estado:
-        db.execute('INSERT OR IGNORE INTO canales_activos VALUES (?)', (interaction.channel_id,))
-        await interaction.response.send_message("✅ Autotraducir ON", ephemeral=True)
+@bot.command(name="autotraducir")
+@commands.has_permissions(manage_channels=True)
+async def autotraducir_cmd(ctx, estado: str):
+    if estado.lower() in ['on', 'true', 'si', '1']:
+        db.execute('INSERT OR IGNORE INTO canales_activos VALUES (?)', (ctx.channel.id,))
+        await ctx.send("✅ Autotraducir ON")
     else:
-        db.execute('DELETE FROM canales_activos WHERE channel_id =?', (interaction.channel_id,))
-        await interaction.response.send_message("❌ Autotraducir OFF", ephemeral=True)
+        db.execute('DELETE FROM canales_activos WHERE channel_id =?', (ctx.channel.id,))
+        await ctx.send("❌ Autotraducir OFF")
     db.commit()
 
 @bot.event
