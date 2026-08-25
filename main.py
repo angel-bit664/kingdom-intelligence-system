@@ -7,7 +7,7 @@ import sqlite3
 import time
 import logging
 from logging.handlers import RotatingFileHandler
-from deep_translator import GoogleTranslator, MyMemoryTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator, single_detection
 from datetime import datetime
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -43,7 +43,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.reactions = True
 intents.members = True
-# ESTA ES LA LÍNEA QUE ARREGLA LO DE LA M MAYÚSCULA
 bot = commands.Bot(command_prefix="meta ", case_insensitive=True, intents=intents, max_messages=1000, help_command=None)
 
 # DB SQLITE
@@ -54,6 +53,8 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS config
                     (guild_id INTEGER, user_id INTEGER, idioma TEXT, PRIMARY KEY (guild_id, user_id))''')
     conn.execute('''CREATE TABLE IF NOT EXISTS canales_activos (channel_id INTEGER PRIMARY KEY)''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS ultimos_anuncios
+                    (guild_id INTEGER, channel_id INTEGER, message_id INTEGER, tipo TEXT, PRIMARY KEY (guild_id, channel_id, tipo))''')
     for canal_id in CANALES_AUTOTRADUCIR_DEFAULT:
         conn.execute('INSERT OR IGNORE INTO canales_activos VALUES (?)', (canal_id,))
     conn.commit()
@@ -123,7 +124,22 @@ def set_cache_db(hash_texto: str, texto: str, destino: str, resultado: str):
                (hash_texto, texto[:500], destino, resultado, time.time()))
     db.commit()
 
-async def traducir_seguro_v5(texto: str, destino: str) -> str:
+def get_user_idioma(guild_id: int, user_id: int) -> Optional[str]:
+    cursor = db.execute('SELECT idioma FROM config WHERE guild_id =? AND user_id =?', (guild_id, user_id))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+def guardar_ultimo_anuncio(guild_id: int, channel_id: int, message_id: int, tipo: str):
+    db.execute('INSERT OR REPLACE INTO ultimos_anuncios VALUES (?,?,?,?)', (guild_id, channel_id, message_id, tipo))
+    db.commit()
+
+def get_ultimo_anuncio(guild_id: int, channel_id: int, tipo: str) -> Optional[int]:
+    cursor = db.execute('SELECT message_id FROM ultimos_anuncios WHERE guild_id =? AND channel_id =? AND tipo =?',
+                        (guild_id, channel_id, tipo))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+async def traducir_seguro_v5(texto: str, destino: str, forzar: bool = False) -> Optional[str]:
     if not texto or len(texto.strip()) < 2:
         return "⚠️ Texto muy corto"
 
@@ -131,49 +147,62 @@ async def traducir_seguro_v5(texto: str, destino: str) -> str:
     if len(texto_limpio) < 2:
         return "⚠️ Solo menciones/emojis"
 
+    if not forzar:
+        try:
+            idioma_origen = await asyncio.to_thread(single_detection, texto_limpio, api_key=None)
+            if idioma_origen == destino:
+                return None
+        except:
+            pass
+
     hash_texto = hashlib.md5(f"{texto_limpio}:{destino}".encode()).hexdigest()
     cached = get_cache_db(hash_texto)
     if cached:
         return cached
 
     if google_cb.call_allowed():
-        try:
-            resultado = await asyncio.wait_for(
-                asyncio.to_thread(GoogleTranslator(source='auto', target=destino).translate, texto_limpio),
-                timeout=2.5
-            )
-            if resultado and 'error' not in resultado.lower():
-                google_cb.record_success()
-                resultado = resultado[:1024]
-                set_cache_db(hash_texto, texto_limpio, destino, resultado)
-                stats['traducidas'] += 1
-                return resultado
-        except:
-            google_cb.record_failure()
+        for intento in range(2):
+            try:
+                resultado = await asyncio.wait_for(
+                    asyncio.to_thread(GoogleTranslator(source='auto', target=destino).translate, texto_limpio),
+                    timeout=5.0
+                )
+                if resultado and 'error' not in resultado.lower():
+                    google_cb.record_success()
+                    resultado = resultado[:1024]
+                    set_cache_db(hash_texto, texto_limpio, destino, resultado)
+                    stats['traducidas'] += 1
+                    return resultado
+            except:
+                await asyncio.sleep(1)
+        google_cb.record_failure()
 
     try:
         resultado = await asyncio.wait_for(
             asyncio.to_thread(MyMemoryTranslator(source='auto', target=destino).translate, texto_limpio),
-            timeout=2.5
+            timeout=5.0
         )
-        if resultado:
+        if resultado and 'error' not in resultado.lower():
             resultado = resultado[:1024]
             set_cache_db(hash_texto, texto_limpio, destino, resultado)
             stats['traducidas'] += 1
             return resultado
     except Exception as e:
-        log.error(f"Trad fallo: {e}")
+        log.error(f"Trad fallo MyMemory: {e}")
         stats['errores'] += 1
 
-    return "⚠️ Translation failed"
+    return "⚠️ Servicios de traducción saturados. Intenta en 5 min"
 
 async def translation_worker():
     while True:
         try:
             task = await translation_queue.get()
             if task is None: break
-            msg, user, idioma, texto = task
-            traduccion = await traducir_seguro_v5(texto, idioma)
+            msg, user, idioma, texto, es_bandera = task
+            traduccion = await traducir_seguro_v5(texto, idioma, forzar=es_bandera)
+
+            if not traduccion:
+                continue
 
             if "⚠️" in traduccion:
                 try: await user.send(f"❌ No pude traducir a {NOMBRES_IDIOMAS[idioma]}")
@@ -185,7 +214,7 @@ async def translation_worker():
                 embed = discord.Embed(description=f"{flag} {traduccion}", color=0x00B0F4)
                 await msg.channel.send(embed=embed, delete_after=40 if idioma == 'tr' else 20)
             else:
-                embed = discord.Embed(title=f"{idioma} {NOMBRES_IDIOMAS[idioma]}", color=0x00FF00)
+                embed = discord.Embed(title=f"{NOMBRES_IDIOMAS[idioma]}", color=0x00FF00)
                 embed.add_field(name="Original", value=texto[:1024], inline=False)
                 embed.add_field(name="Traducción", value=traduccion, inline=False)
                 await user.send(embed=embed)
@@ -222,7 +251,7 @@ async def ping(ctx):
 @bot.command(name="health")
 async def health(ctx):
     uptime = int(time.time() - stats['inicio'])
-    ram = psutil.Process().memory_info().rss / 1024 / 1024
+    ram = psutil.Process().memory_info().rss / 1024
     embed = discord.Embed(title="🟢 META BOT HEALTH", color=0x00FF00)
     embed.add_field(name="Uptime", value=f"{uptime//3600}h {(uptime%3600)//60}m", inline=True)
     embed.add_field(name="RAM", value=f"{ram:.1f}MB / 512MB", inline=True)
@@ -234,6 +263,13 @@ async def health(ctx):
     embed.add_field(name="Queue", value=f"{translation_queue.qsize()}/100", inline=True)
     await ctx.send(embed=embed)
 
+@bot.command(name="fix")
+@commands.has_permissions(administrator=True)
+async def fix(ctx):
+    global google_cb
+    google_cb = CircuitBreaker()
+    await ctx.send("✅ Circuit Breaker reseteado. Ya debería traducir")
+
 @bot.command(name="activate")
 async def activate(ctx, usuario: discord.Member, *, mensaje=""):
     if tiene_cooldown(ctx.author.id):
@@ -241,12 +277,14 @@ async def activate(ctx, usuario: discord.Member, *, mensaje=""):
     stats['comandos'] += 1
 
     texto_en = await traducir_seguro_v5(mensaje, 'en') if mensaje else ""
+    if texto_en and "⚠️" in texto_en: texto_en = ""
     mensaje_extra = f"\n\n💬 MENSAJE:\n🇲🇽 {mensaje}\n🇺🇸 {texto_en}" if mensaje else ""
     descripcion = f"🚨 CÓDIGO DE EMERGENCIA TFT 🚨\n⚠️ ALERTA ROJA\n🎯 OBJETIVO: {usuario.mention}\n❌ ESTADO: SIN ESCUDO ACTIVO\n🛡️ PROTOCOLO: 1. MUÉVETE YA 2. ESCUDO 8H 3. TELEPORT{mensaje_extra}"[:4096]
 
     embed = discord.Embed(description=descripcion, color=0xFF0000)
     canal = bot.get_channel(ID_CANAL_ACTIVATE) or ctx.channel
-    await canal.send(content=usuario.mention, embed=embed)
+    msg = await canal.send(content=usuario.mention, embed=embed)
+    guardar_ultimo_anuncio(ctx.guild.id, canal.id, msg.id, "activate")
     await ctx.message.add_reaction("✅")
 
 @bot.command(name="alerta")
@@ -256,12 +294,31 @@ async def alerta(ctx, *, texto: str):
     stats['comandos'] += 1
 
     texto_en = await traducir_seguro_v5(texto, 'en')
+    if not texto_en or "⚠️" in texto_en: texto_en = "Translation failed"
     embed = discord.Embed(title="🚨 ALERTA", color=0x3498DB)
     embed.add_field(name="🇲🇽 Español", value=texto[:1024], inline=False)
     embed.add_field(name="🇺🇸 English", value=texto_en, inline=False)
 
     canal = bot.get_channel(ID_CANAL_ANUNCIOS) or ctx.channel
-    await canal.send("@everyone", embed=embed)
+    msg = await canal.send("@everyone", embed=embed)
+    guardar_ultimo_anuncio(ctx.guild.id, canal.id, msg.id, "alerta")
+    await ctx.message.add_reaction("✅")
+
+@bot.command(name="evento")
+async def evento(ctx, *, texto: str):
+    if tiene_cooldown(ctx.author.id):
+        return await ctx.send("⏳ Espera 2.5s", delete_after=3)
+    stats['comandos'] += 1
+
+    texto_en = await traducir_seguro_v5(texto, 'en')
+    if not texto_en or "⚠️" in texto_en: texto_en = "Translation failed"
+    embed = discord.Embed(title="⚔️ EVENTO", color=0xE67E22)
+    embed.add_field(name="🇲🇽 Español", value=texto[:1024], inline=False)
+    embed.add_field(name="🇺🇸 English", value=texto_en, inline=False)
+
+    canal = bot.get_channel(ID_CANAL_ANUNCIOS) or ctx.channel
+    msg = await canal.send("@everyone", embed=embed)
+    guardar_ultimo_anuncio(ctx.guild.id, canal.id, msg.id, "evento")
     await ctx.message.add_reaction("✅")
 
 @bot.command(name="buffo")
@@ -271,12 +328,14 @@ async def buffo(ctx, *, texto: str):
     stats['comandos'] += 1
 
     texto_en = await traducir_seguro_v5(texto, 'en')
+    if not texto_en or "⚠️" in texto_en: texto_en = "Translation failed"
     embed = discord.Embed(title="🛎️ BUFO ACTIVADO", color=0x9B59B6)
     embed.add_field(name="🇲🇽 Español", value=f"✅ {texto[:1024]}", inline=False)
     embed.add_field(name="🇺🇸 English", value=f"✅ {texto_en}", inline=False)
 
     canal = bot.get_channel(ID_CANAL_BUFF) or ctx.channel
-    await canal.send("@everyone", embed=embed)
+    msg = await canal.send("@everyone", embed=embed)
+    guardar_ultimo_anuncio(ctx.guild.id, canal.id, msg.id, "buffo")
     await ctx.message.add_reaction("✅")
 
 @bot.command(name="cumpleaños")
@@ -287,6 +346,7 @@ async def cumpleaños(ctx, usuario: discord.Member, *, mensaje=""):
 
     if mensaje:
         texto_en = await traducir_seguro_v5(mensaje, 'en')
+        if not texto_en or "⚠️" in texto_en: texto_en = mensaje
         mensaje_es, mensaje_en = mensaje, texto_en
     else:
         mensaje_es = f"¡Feliz cumpleaños {usuario.display_name}! 🎉🎂"
@@ -298,8 +358,68 @@ async def cumpleaños(ctx, usuario: discord.Member, *, mensaje=""):
     embed.set_thumbnail(url=usuario.display_avatar.url)
 
     canal = bot.get_channel(ID_CANAL_ANUNCIOS) or ctx.channel
-    await canal.send(content=f"{usuario.mention} @everyone", embed=embed)
+    msg = await canal.send(content=f"{usuario.mention} @everyone", embed=embed)
+    guardar_ultimo_anuncio(ctx.guild.id, canal.id, msg.id, "cumpleaños")
     await ctx.message.add_reaction("✅")
+
+@bot.command(name="editar")
+@commands.has_permissions(manage_messages=True)
+async def editar(ctx, *, texto: str):
+    if tiene_cooldown(ctx.author.id):
+        return await ctx.send("⏳ Espera 2.5s", delete_after=3)
+
+    tipos = ["activate", "alerta", "evento", "buffo", "cumpleaños"]
+    ultimo_id = None
+    ultimo_tipo = None
+    for tipo in tipos:
+        msg_id = get_ultimo_anuncio(ctx.guild.id, ctx.channel.id, tipo)
+        if msg_id:
+            ultimo_id = msg_id
+            ultimo_tipo = tipo
+            break
+
+    if not ultimo_id:
+        return await ctx.send("❌ No encontré anuncios recientes del bot para editar")
+
+    try:
+        mensaje = await ctx.channel.fetch_message(ultimo_id)
+        texto_en = await traducir_seguro_v5(texto, 'en')
+        if not texto_en or "⚠️" in texto_en: texto_en = "Translation failed"
+
+        if ultimo_tipo == "activate":
+            descripcion = f"🚨 CÓDIGO DE EMERGENCIA TFT 🚨\n⚠️ ALERTA ROJA\n💬 MENSAJE:\n🇲🇽 {texto}\n🇺🇸 {texto_en}"[:4096]
+            embed = discord.Embed(description=descripcion, color=0xFF0000)
+        elif ultimo_tipo == "alerta":
+            embed = discord.Embed(title="🚨 ALERTA", color=0x3498DB)
+            embed.add_field(name="🇲🇽 Español", value=texto[:1024], inline=False)
+            embed.add_field(name="🇺🇸 English", value=texto_en, inline=False)
+        elif ultimo_tipo == "evento":
+            embed = discord.Embed(title="⚔️ EVENTO", color=0xE67E22)
+            embed.add_field(name="🇲🇽 Español", value=texto[:1024], inline=False)
+            embed.add_field(name="🇺🇸 English", value=texto_en, inline=False)
+        elif ultimo_tipo == "buffo":
+            embed = discord.Embed(title="🛎️ BUFO ACTIVADO", color=0x9B59B6)
+            embed.add_field(name="🇲🇽 Español", value=f"✅ {texto[:1024]}", inline=False)
+            embed.add_field(name="🇺🇸 English", value=f"✅ {texto_en}", inline=False)
+        else:
+            embed = mensaje.embeds[0]
+
+        await mensaje.edit(embed=embed)
+        await ctx.message.add_reaction("✅")
+    except Exception as e:
+        await ctx.send(f"❌ Error al editar: {e}")
+
+@bot.command(name="limpia")
+@commands.has_permissions(manage_messages=True)
+async def limpia(ctx, cantidad: int = 10):
+    if cantidad > 50:
+        return await ctx.send("❌ Máximo 50 mensajes")
+
+    def es_bot(m):
+        return m.author == bot.user
+
+    borrados = await ctx.channel.purge(limit=cantidad, check=es_bot)
+    await ctx.send(f"✅ Borré {len(borrados)} mensajes del bot", delete_after=5)
 
 @bot.command(name="idioma")
 async def idioma(ctx, *, idioma_nuevo: str):
@@ -326,36 +446,37 @@ async def autotraducir_cmd(ctx, estado: str):
 
 @bot.command(name="ayuda")
 async def ayuda(ctx):
-    embed = discord.Embed(title="📚 COMANDOS META BOT V5", color=0x00B0F4)
-    embed.description = "Prefix: `meta` o `Meta`\nAutotraducir activo en 5 canales"
+    embed = discord.Embed(title="📋 COMANDOS META BOT", color=0x9B59B6)
 
-    embed.add_field(
-        name="🚨 COMANDOS KvK",
-        value="`meta activate @usuario mensaje` - Código rojo TFT\n"
-              "`meta alerta texto` - Alerta bilingüe + @everyone\n"
-              "`meta buffo texto` - Bufo bilingüe + @everyone\n"
-              "`meta cumpleaños @usuario mensaje` - Felicitación bilingüe",
-        inline=False
-    )
+    embed.add_field(name="🚨 meta activate @usuario [mensaje]", value="Código de emergencia ES/EN", inline=False)
+    embed.add_field(name="🎂 meta cumpleaños @usuario [mensaje]", value="Felicitación ES/EN", inline=False)
+    embed.add_field(name="📢 meta alerta <texto>", value="Alerta ES/EN", inline=False)
+    embed.add_field(name="⚔️ meta evento <texto>", value="Evento ES/EN", inline=False)
+    embed.add_field(name="🛎️ meta buffo <texto>", value="Bufo ES/EN + @everyone", inline=False)
+    embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio del bot", inline=False)
+    embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot | Max 50", inline=False)
+    embed.add_field(name="🟢 meta ping", value="Verifica latencia", inline=False)
+    embed.add_field(name="🌍 Traductor", value="Siempre activo en #oficiales, #diplomacia, #bitácora y #anuncios", inline=False)
+    embed.add_field(name="🌍 Banderas", value="Reacciona con 🇺🇸🇧🇷🇯🇵🇫🇷🇩🇪🇮🇹🇷🇺🇰🇷🇨🇳🇮🇩🇹🇷 pa traducir", inline=False)
 
-    embed.add_field(
-        name="🌍 TRADUCCIÓN",
-        value="`meta idioma español` - Configura tu idioma pa DMs automáticos\n"
-              "`meta autotraducir on/off` - Prende/apaga autotraducir en canal\n"
-              "Reacciona 🇺🇸🇧🇷🇯🇵🇹🇷 a cualquier mensaje pa traducir",
-        inline=False
-    )
-
-    embed.add_field(
-        name="⚙️ SISTEMA",
-        value="`meta ping` - Latencia del bot\n"
-              "`meta health` - RAM, uptime, stats\n"
-              "`meta ayuda` - Este menú",
-        inline=False
-    )
-
-    embed.set_footer(text="V5 GOD TIER | 5 workers + SQLite + Circuit Breaker")
+    embed.set_footer(text="META ESTÁ CONTIGO. UN REINO, UNA ALIANZA UNA META")
     await ctx.send(embed=embed)
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    if message.content.startswith(bot.command_prefix):
+        await bot.process_commands(message)
+        return
+
+    if canal_tiene_autotraducir(message.channel.id):
+        idioma_destino = get_user_idioma(message.guild.id, message.author.id)
+        if idioma_destino:
+            await translation_queue.put((message, message.author, idioma_destino, message.content, False))
+
+    await bot.process_commands(message)
 
 @bot.event
 async def on_raw_reaction_add(payload):
@@ -382,11 +503,11 @@ async def on_raw_reaction_add(payload):
             if not texto: return
 
             idioma = BANDERAS[emoji]
-            await translation_queue.put((message, user, idioma, texto))
+            await translation_queue.put((message, user, idioma, texto, True))
         except Exception as e:
             log.error(f"Reacción error: {e}")
 
-# WEB SERVER PA UPTIMEROBOT - AHORA CON do_HEAD
+# WEB SERVER PA UPTIMEROBOT
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
