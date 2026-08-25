@@ -323,6 +323,39 @@ async def autotraducir_cmd(ctx, estado: str):
         await ctx.send("❌ Autotraducir OFF")
     db.commit()
 
+@bot.command(name="ayuda")
+async def ayuda(ctx):
+    embed = discord.Embed(title="📚 COMANDOS META BOT V5", color=0x00B0F4)
+    embed.description = "Prefix: `meta`\nAutotraducir activo en 5 canales"
+
+    embed.add_field(
+        name="🚨 COMANDOS KvK",
+        value="`meta activate @usuario mensaje` - Código rojo TFT\n"
+              "`meta alerta texto` - Alerta bilingüe + @everyone\n"
+              "`meta buffo texto` - Bufo bilingüe + @everyone\n"
+              "`meta cumpleaños @usuario mensaje` - Felicitación bilingüe",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🌍 TRADUCCIÓN",
+        value="`meta idioma español` - Configura tu idioma pa DMs automáticos\n"
+              "`meta autotraducir on/off` - Prende/apaga autotraducir en canal\n"
+              "Reacciona 🇺🇸🇧🇷🇯🇵🇹🇷 a cualquier mensaje pa traducir",
+        inline=False
+    )
+
+    embed.add_field(
+        name="⚙️ SISTEMA",
+        value="`meta ping` - Latencia del bot\n"
+              "`meta health` - RAM, uptime, stats\n"
+              "`meta ayuda` - Este menú",
+        inline=False
+    )
+
+    embed.set_footer(text="V5 GOD TIER | 5 workers + SQLite + Circuit Breaker")
+    await ctx.send(embed=embed)
+
 @bot.event
 async def on_raw_reaction_add(payload):
     if payload.user_id == bot.user.id: return
