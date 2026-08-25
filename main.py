@@ -13,7 +13,7 @@ from collections import defaultdict
 import hashlib
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-GUILD_ID = None # Pon ID de tu server pa sync rápido
+GUILD_ID = None
 
 # TUS IDs REALES
 ID_CANAL_ACTIVATE = 1358237524249542751
@@ -23,6 +23,7 @@ ID_CANAL_OFICIALES = 1358237525214236705
 ID_CANAL_BITACORA = 1362642374429245440
 ID_CANAL_DIPLOMACIA = 1358237524799131664
 ID_CANAL_GENERAL = 1358237524799131662
+ID_CANAL_LOGS = 1358237524799131662 # Cambia por uno privado
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -30,13 +31,13 @@ intents.reactions = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# SISTEMAS ANTI CRASH
+# CACHE Y LOCKS
 mensajes_con_banderas = {}
 ultimo_anuncio = {}
 traduciendo_users = set()
 cache_traducciones = {} # {hash: traduccion}
 cooldowns = defaultdict(lambda: datetime.now() - timedelta(seconds=10))
-traducciones_activas = set() # {message_id:idioma} evita dupes simultáneos
+traducciones_activas = set() # {message_id:idioma} PA EVITAR DUPES
 flag_mode_channels = set([
     ID_CANAL_OFICIALES,
     ID_CANAL_BITACORA,
@@ -60,7 +61,6 @@ NOMBRES_IDIOMAS = {
     'ar': 'Árabe', 'th': 'Tailandés', 'vi': 'Vietnamita'
 }
 
-# ANTI RATE LIMIT GLOBAL 1.2s ENTRE TRADUCCIONES
 async def esperar_rate_limit():
     global ultima_traduccion
     async with rate_limit_lock:
@@ -69,7 +69,6 @@ async def esperar_rate_limit():
             await asyncio.sleep(tiempo_espera)
         ultima_traduccion = datetime.now()
 
-# TRADUCTOR CON CACHE + 2 APIS + LIMPIA MENCIONES
 async def traducir_seguro(texto, destino, max_reintentos=2):
     if not texto or len(texto.strip()) < 2:
         return "⚠️ Texto muy corto"
@@ -77,7 +76,6 @@ async def traducir_seguro(texto, destino, max_reintentos=2):
     # Limpiar menciones pa que no traduzca @Goloshino
     texto_limpio = re.sub(r'<@!?\d+>', '', texto)
     texto_limpio = re.sub(r'<@&\d+>', '', texto_limpio)
-    texto_limpio = re.sub(r'@\w+', '', texto_limpio)
     texto_limpio = texto_limpio.strip()
     if len(texto_limpio) < 2:
         return "⚠️ Solo menciones detectadas"
@@ -97,14 +95,12 @@ async def traducir_seguro(texto, destino, max_reintentos=2):
             if traducido and 'error' not in traducido.lower() and '500' not in traducido:
                 resultado = traducido[:1024]
                 cache_traducciones[hash_texto] = resultado
-                if len(cache_traducciones) > 500:
-                    cache_traducciones.clear()
                 return resultado
         except Exception as e:
             print(f"[TRAD INTENTO {intento+1}] {destino}: {e}")
             await asyncio.sleep(0.8 * (intento + 1))
 
-    return "⚠️ Translation failed"
+    return "⚠️ Translation failed - Try again later"
 
 async def corregir_y_traducir_ia(texto_original: str):
     texto_limpio = re.sub(r'[@#]', '', texto_original)
@@ -115,9 +111,12 @@ async def corregir_y_traducir_ia(texto_original: str):
     traducido = await traducir_seguro(texto_limpio, 'en')
     return {'es': texto_limpio[:1024], 'en': traducido}
 
+async def traducir_a_idioma(texto, idioma_destino):
+    return await traducir_seguro(texto, idioma_destino)
+
 @bot.event
 async def on_ready():
-    print(f'{bot.user} conectado. V3 Anti-Crash ON.')
+    print(f'{bot.user} conectado. Slash commands ON.')
     try:
         if GUILD_ID:
             guild = discord.Object(id=GUILD_ID)
@@ -228,51 +227,21 @@ async def buffo(interaction: discord.Interaction, texto: str):
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message(f"🟢 Pong! {round(bot.latency*1000)}ms", ephemeral=True)
 
-@bot.tree.command(name="editar", description="✏️ Edita el último anuncio")
-@app_commands.describe(texto="Nuevo texto")
-async def editar(interaction: discord.Interaction, texto: str):
-    if tiene_cooldown(interaction.user.id):
-        return await interaction.response.send_message("⏳ Espera 3s", ephemeral=True)
-
-    if interaction.channel_id not in ultimo_anuncio:
-        return await interaction.response.send_message("❌ No hay anuncio reciente en este canal", ephemeral=True)
-
-    await interaction.response.defer(ephemeral=True)
-    msg_a_editar = ultimo_anuncio[interaction.channel_id]
-    datos = await corregir_y_traducir_ia(texto)
-
-    try:
-        embed = msg_a_editar.embeds[0]
-        embed.clear_fields()
-        if "CUMPLEAÑOS" in embed.title:
-            embed.add_field(name="🇲🇽 Español", value=datos['es'], inline=False)
-            embed.add_field(name="🇺🇸 English", value=datos['en'], inline=False)
-        elif "BUFO" in embed.title:
-            embed.add_field(name="🇲🇽 Español", value=f"✅ {datos['es']}", inline=False)
-            embed.add_field(name="🇺🇸 English", value=f"✅ {datos['en']}", inline=False)
-        else:
-            embed.add_field(name="🇲🇽 Español", value=datos['es'], inline=False)
-            embed.add_field(name="🇺🇸 English", value=datos['en'], inline=False)
-        await msg_a_editar.edit(embed=embed)
-        mensajes_con_banderas[msg_a_editar.id]["texto_es"] = datos['es']
-        await interaction.followup.send("✅ Anuncio editado", ephemeral=True)
-    except Exception as e:
-        print(f"Error editar: {e}")
-        await interaction.followup.send("❌ No se pudo editar", ephemeral=True)
-
 @bot.event
 async def on_raw_reaction_add(payload):
     if payload.user_id == bot.user.id: return
     if payload.user_id in traduciendo_users: return
 
     emoji = str(payload.emoji)
-    if emoji not in BANDERAS: return
+    if emoji not in BANDERAS:
+        return
 
     idioma = BANDERAS[emoji]
     lock_key = f"{payload.message_id}:{idioma}"
 
-    # ANTI SPAM: Si ya se está traduciendo este mensaje a este idioma, salir
-    if lock_key in traducciones_activas: return
+    # ANTI DUPLICADOS: Si ya se está traduciendo este mensaje a este idioma, salir
+    if lock_key in traducciones_activas:
+        return
 
     traducciones_activas.add(lock_key)
     traduciendo_users.add(payload.user_id)
@@ -287,7 +256,7 @@ async def on_raw_reaction_add(payload):
             await message.remove_reaction(payload.emoji, user)
         except: pass
 
-        # Solo últimos 50 mensajes
+        # Verificar que esté en últimos 50
         encontrado = False
         async for msg in channel.history(limit=50):
             if msg.id == message.id:
@@ -301,11 +270,12 @@ async def on_raw_reaction_add(payload):
         elif payload.channel_id in flag_mode_channels and not message.author.bot:
             texto_a_traducir = message.content
 
-        if not texto_a_traducir or len(texto_a_traducir.strip()) < 2: return
+        if not texto_a_traducir or len(texto_a_traducir.strip()) < 2:
+            return
 
-        traduccion = await traducir_seguro(texto_a_traducir, idioma)
+        traduccion = await traducir_a_idioma(texto_a_traducir, idioma)
 
-        # Si falló, avisar por DM sin spamear canal
+        # Si falló la traducción, no spamear
         if "⚠️" in traduccion:
             try:
                 await user.send(f"❌ No pude traducir ese mensaje a {NOMBRES_IDIOMAS[idioma]}. Intenta más tarde.")
