@@ -2,10 +2,11 @@ import discord
 import asyncio
 import re
 import os
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
 from datetime import datetime
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import random
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -16,6 +17,7 @@ ID_CANAL_BUFF = 1358237524249542751
 ID_CANAL_OFICIALES = 1358237525214236705
 ID_CANAL_BITACORA = 1362642374429245440
 ID_CANAL_DIPLOMACIA = 1358237524799131664
+ID_CANAL_GENERAL = 1358237524799131662 # CHAT GENERAL AGREGADO
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -31,6 +33,7 @@ flag_mode_channels = set([
     ID_CANAL_BITACORA,
     ID_CANAL_DIPLOMACIA,
     ID_CANAL_ANUNCIOS,
+    ID_CANAL_GENERAL, # AGREGADO
 ])
 procesando_activate = set()
 traduciendo_users = set()
@@ -47,38 +50,48 @@ NOMBRES_IDIOMAS = {
     'id': 'Indonesio', 'en': 'Inglés', 'es': 'Español', 'tr': 'Turco'
 }
 
+# TRADUCTOR CON REINTENTOS Y FALLBACK - ARREGLA EL ERROR 500
+async def traducir_seguro(texto, destino, max_reintentos=3):
+    for intento in range(max_reintentos):
+        try:
+            # Intento 1-2: Google
+            if intento < 2:
+                await asyncio.sleep(random.uniform(0.3, 0.8)) # Anti rate-limit
+                traducido = GoogleTranslator(source='auto', target=destino).translate(texto)
+                if traducido and 'error' not in traducido.lower() and 'Error 500' not in traducido:
+                    return traducido[:1024]
+            # Intento 3: MyMemory como respaldo
+            else:
+                await asyncio.sleep(0.5)
+                traducido = MyMemoryTranslator(source='auto', target=destino).translate(texto)
+                if traducido and 'error' not in traducido.lower():
+                    return traducido[:1024]
+        except Exception as e:
+            print(f"[INTENTO {intento+1} FAIL] {e}")
+            await asyncio.sleep(1)
+
+    return "⚠️ Translation failed - Try again later"
+
 async def corregir_y_traducir_ia(texto_original: str):
     texto_limpio = re.sub(r'[@#]', '', texto_original)
     texto_limpio = re.sub(r'\s+', ' ', texto_limpio).strip()
     if len(texto_limpio) < 3:
         return {'es': texto_original, 'en': '⚠️ Message too short'}
-    try:
-        traducido = GoogleTranslator(source='auto', target='en').translate(texto_limpio)
-        if not traducido or 'error' in traducido.lower():
-            raise Exception("Traduccion vacia o con error")
-        return {'es': texto_limpio[:1024], 'en': traducido[:1024]}
-    except Exception as e:
-        print(f"[DEEP-TRANSLATOR FAIL] {datetime.now()} | {e}")
-        return {'es': texto_limpio, 'en': '⚠️ Auto-translation failed. Use ES text above.'}
+
+    traducido = await traducir_seguro(texto_limpio, 'en')
+    return {'es': texto_limpio[:1024], 'en': traducido}
 
 async def traducir_a_idioma(texto, idioma_destino):
-    try:
-        traducido = GoogleTranslator(source='auto', target=idioma_destino).translate(texto)
-        return traducido[:1024] if traducido else "⚠️ Translation failed"
-    except:
-        return "⚠️ Translation failed"
+    return await traducir_seguro(texto, idioma_destino)
 
 @client.event
 async def on_ready():
-    print(f'{client.user} conectado. Banderas ocultas ON. Autotraducir activo en: oficiales, bitácora, diplomacia, anuncios.')
+    print(f'{client.user} conectado. Banderas ocultas ON. Autotraducir activo en: oficiales, bitácora, diplomacia, anuncios, general.')
 
 @client.event
 async def on_message(message):
     if message.author == client.user: return
-
-    # FIX: AHORA AGARRA Meta, META, mEtA, etc
     if not message.content.lower().startswith("meta "): return
-
     args = message.content[5:].strip()
     comando = args.split()[0].lower() if args else ""
     args = " ".join(args.split()[1:]) if len(args.split()) > 1 else ""
@@ -235,7 +248,7 @@ async def on_message(message):
         embed.add_field(name="✏️ meta editar <texto>", value="Edita el último anuncio del bot", inline=False)
         embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot | Max 50", inline=False)
         embed.add_field(name="🟢 meta ping", value="Verifica latencia", inline=False)
-        embed.add_field(name="🌍 Traductor", value="Siempre activo en #oficiales, #diplomacia, #bitácora y #anuncios", inline=False)
+        embed.add_field(name="🌍 Traductor", value="Siempre activo en #oficiales, #diplomacia, #bitácora, #anuncios, #general", inline=False)
         embed.add_field(name="🌍 Banderas", value="Reacciona con 🇺🇸🇧🇷🇯🇵🇫🇷🇩🇪🇮🇹🇷🇺🇰🇷🇨🇳🇮🇩🇹🇷 pa traducir", inline=False)
         embed.set_footer(text="META ESTÁ CONTIGO. UN REINO, UNA ALIANZA, UNA META")
         await message.channel.send(embed=embed)
