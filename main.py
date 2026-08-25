@@ -43,7 +43,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.reactions = True
 intents.members = True
-bot = commands.Bot(command_prefix="meta ", intents=intents, max_messages=1000, help_command=None)
+# ESTA ES LA LÍNEA QUE ARREGLA LO DE LA M MAYÚSCULA
+bot = commands.Bot(command_prefix="meta ", case_insensitive=True, intents=intents, max_messages=1000, help_command=None)
 
 # DB SQLITE
 def init_db():
@@ -326,7 +327,7 @@ async def autotraducir_cmd(ctx, estado: str):
 @bot.command(name="ayuda")
 async def ayuda(ctx):
     embed = discord.Embed(title="📚 COMANDOS META BOT V5", color=0x00B0F4)
-    embed.description = "Prefix: `meta`\nAutotraducir activo en 5 canales"
+    embed.description = "Prefix: `meta` o `Meta`\nAutotraducir activo en 5 canales"
 
     embed.add_field(
         name="🚨 COMANDOS KvK",
@@ -385,12 +386,18 @@ async def on_raw_reaction_add(payload):
         except Exception as e:
             log.error(f"Reacción error: {e}")
 
-# WEB SERVER SIMPLE QUE SÍ JALA EN RENDER - ESTE ES EL QUE USABAS ANTES
+# WEB SERVER PA UPTIMEROBOT - AHORA CON do_HEAD
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b'OK')
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, format, *args): pass
 
 threading.Thread(target=lambda: HTTPServer(('0.0.0.0', 10000), Handler).serve_forever(), daemon=True).start()
 bot.run(TOKEN)
