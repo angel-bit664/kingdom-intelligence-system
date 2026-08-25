@@ -9,14 +9,13 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-# TUS IDs REALES WE
-ID_CANAL_ACTIVATE = 1358237524249542751 # anuncios - lo usas pa activate
-ID_CANAL_ANUNCIOS = 1358237524249542751 # anuncios
-ID_CANAL_BUFF = 1358237524249542751 # usa el mismo si no tienes canal buff separado
+# TUS IDs REALES
+ID_CANAL_ACTIVATE = 1358237524249542751
+ID_CANAL_ANUNCIOS = 1358237524249542751
+ID_CANAL_BUFF = 1358237524249542751
 ID_CANAL_OFICIALES = 1358237525214236705
 ID_CANAL_BITACORA = 1362642374429245440
 ID_CANAL_DIPLOMACIA = 1358237524799131664
-ID_CANAL_GENERAL = 1358237524799131662 # Asumo que anuncios es general, si no cámbialo
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -31,7 +30,7 @@ flag_mode_channels = set([
     ID_CANAL_OFICIALES,
     ID_CANAL_BITACORA,
     ID_CANAL_DIPLOMACIA,
-    ID_CANAL_ANUNCIOS, # general/anuncios
+    ID_CANAL_ANUNCIOS,
 ])
 procesando_activate = set()
 traduciendo_users = set()
@@ -39,13 +38,13 @@ traduciendo_users = set()
 BANDERAS = {
     '🇧🇷': 'pt', '🇫🇷': 'fr', '🇩🇪': 'de', '🇮🇹': 'it',
     '🇷🇺': 'ru', '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh', '🇮🇩': 'id',
-    '🇺🇸': 'en', '🇪🇸': 'es'
+    '🇺🇸': 'en', '🇪🇸': 'es', '🇹🇷': 'tr'
 }
 
 NOMBRES_IDIOMAS = {
     'pt': 'Portugués', 'fr': 'Francés', 'de': 'Alemán', 'it': 'Italiano',
     'ru': 'Ruso', 'ja': 'Japonés', 'ko': 'Coreano', 'zh': 'Chino',
-    'id': 'Indonesio', 'en': 'Inglés', 'es': 'Español'
+    'id': 'Indonesio', 'en': 'Inglés', 'es': 'Español', 'tr': 'Turco'
 }
 
 async def corregir_y_traducir_ia(texto_original: str):
@@ -76,7 +75,10 @@ async def on_ready():
 @client.event
 async def on_message(message):
     if message.author == client.user: return
-    if not message.content.startswith("meta "): return
+
+    # FIX: AHORA AGARRA Meta, META, mEtA, etc
+    if not message.content.lower().startswith("meta "): return
+
     args = message.content[5:].strip()
     comando = args.split()[0].lower() if args else ""
     args = " ".join(args.split()[1:]) if len(args.split()) > 1 else ""
@@ -97,7 +99,7 @@ async def on_message(message):
             mensaje_extra = f"\n\n💬 MENSAJE / MESSAGE:\n🇲🇽 {datos['es']}\n🇺🇸 {datos['en']}"
         descripcion = f"🚨 CÓDIGO DE EMERGENCIA TFT 🚨\n⚠️ ALERTA ROJA\n🎯 OBJETIVO: {usuarios_texto}\n❌ ESTADO: {texto_sin} {texto_escudo} ACTIVO\n🛡️ PROTOCOLO: 1. {texto_plural} YA 2. ESCUDO 8H 3. TELEPORT{mensaje_extra}"[:4096]
         embed = discord.Embed(description=descripcion, color=0xFF0000)
-        embed.set_footer(text="Reacciona con 🇺🇸🇧🇷🇯🇵 para traducir a otros idiomas")
+        embed.set_footer(text="Reacciona con 🇺🇸🇧🇷🇯🇵🇹🇷 para traducir a otros idiomas")
         canal_activate = client.get_channel(ID_CANAL_ACTIVATE)
         if canal_activate is None: canal_activate = message.channel
         try:
@@ -130,7 +132,7 @@ async def on_message(message):
         embed.add_field(name="🇲🇽 Español", value=mensaje_es, inline=False)
         embed.add_field(name="🇺🇸 English", value=mensaje_en, inline=False)
         embed.set_thumbnail(url=usuario.display_avatar.url)
-        embed.set_footer(text="Reacciona con 🇺🇸🇧🇷🇯🇵 para traducir a otros idiomas")
+        embed.set_footer(text="Reacciona con 🇺🇸🇧🇷🇯🇵🇹🇷 para traducir a otros idiomas")
         canal = client.get_channel(ID_CANAL_ANUNCIOS) or message.channel
         msg_publicado = await canal.send(content=f"{usuario.mention} @everyone", embed=embed)
         mensajes_con_banderas[msg_publicado.id] = {"texto_es": mensaje_es, "tipo": "cumpleaños"}
@@ -148,7 +150,7 @@ async def on_message(message):
         embed = discord.Embed(title="📅 EVENTO / 🚨 ALERTA", color=0x3498DB)
         embed.add_field(name="🇲🇽 Español", value=datos['es'], inline=False)
         embed.add_field(name="🇺🇸 English", value=datos['en'], inline=False)
-        embed.set_footer(text="Reacciona con 🇺🇸🇧🇷🇯🇵 para traducir a otros idiomas")
+        embed.set_footer(text="Reacciona con 🇺🇸🇧🇷🇯🇵🇹🇷 para traducir a otros idiomas")
         canal = client.get_channel(ID_CANAL_ANUNCIOS) or message.channel
         msg_publicado = await canal.send("@everyone", embed=embed)
         mensajes_con_banderas[msg_publicado.id] = {"texto_es": datos['es'], "tipo": comando}
@@ -163,7 +165,7 @@ async def on_message(message):
         embed = discord.Embed(title="🛎️ BUFO ACTIVADO", color=0x9B59B6)
         embed.add_field(name="🇲🇽 Español", value=f"✅ {datos['es']}", inline=False)
         embed.add_field(name="🇺🇸 English", value=f"✅ {datos['en']}", inline=False)
-        embed.set_footer(text="Reacciona con 🇺🇸🇧🇷🇯🇵 para traducir a otros idiomas")
+        embed.set_footer(text="Reacciona con 🇺🇸🇧🇷🇯🇵🇹🇷 para traducir a otros idiomas")
         canal_buff = client.get_channel(ID_CANAL_BUFF) or message.channel
         msg_publicado = await canal_buff.send("@everyone", embed=embed)
         mensajes_con_banderas[msg_publicado.id] = {"texto_es": datos['es'], "tipo": "buffo"}
@@ -234,7 +236,7 @@ async def on_message(message):
         embed.add_field(name="🧹 meta limpia [cantidad]", value="Borra mensajes del bot | Max 50", inline=False)
         embed.add_field(name="🟢 meta ping", value="Verifica latencia", inline=False)
         embed.add_field(name="🌍 Traductor", value="Siempre activo en #oficiales, #diplomacia, #bitácora y #anuncios", inline=False)
-        embed.add_field(name="🌍 Banderas", value="Reacciona con 🇺🇸🇧🇷🇯🇵🇫🇷🇩🇪🇮🇹🇷🇺🇯🇵🇰🇷🇨🇳🇮🇩 pa traducir", inline=False)
+        embed.add_field(name="🌍 Banderas", value="Reacciona con 🇺🇸🇧🇷🇯🇵🇫🇷🇩🇪🇮🇹🇷🇺🇰🇷🇨🇳🇮🇩🇹🇷 pa traducir", inline=False)
         embed.set_footer(text="META ESTÁ CONTIGO. UN REINO, UNA ALIANZA, UNA META")
         await message.channel.send(embed=embed)
         return
@@ -277,10 +279,14 @@ async def on_raw_reaction_add(payload):
         if payload.channel_id in flag_mode_channels:
             if message.author.bot or len(message.content.strip()) < 2: return
             traduccion = await traducir_a_idioma(message.content, BANDERAS[emoji])
-            if BANDERAS[emoji] in ['es', 'en']:
-                flag_emoji = '🇪🇸' if BANDERAS[emoji] == 'es' else '🇺🇸'
+
+            # TIMER ESPECIAL PA TURCO: 40 SEGUNDOS, RESTO 20 SEGUNDOS
+            delete_timer = 40 if BANDERAS[emoji] == 'tr' else 20
+
+            if BANDERAS[emoji] in ['es', 'en', 'tr']:
+                flag_emoji = '🇪🇸' if BANDERAS[emoji] == 'es' else '🇺🇸' if BANDERAS[emoji] == 'en' else '🇹🇷'
                 embed = discord.Embed(description=f"{flag_emoji} {traduccion}", color=0x00B0F4)
-                await channel.send(embed=embed, delete_after=20)
+                await channel.send(embed=embed, delete_after=delete_timer)
             else:
                 nombre = NOMBRES_IDIOMAS.get(BANDERAS[emoji], BANDERAS[emoji])
                 embed_dm = discord.Embed(title=f"{emoji} Traducción a {nombre}", color=0x00FF00)
