@@ -385,12 +385,12 @@ async def on_raw_reaction_add(payload):
         except Exception as e:
             log.error(f"Reacción error: {e}")
 
+# WEB SERVER SIMPLE QUE SÍ JALA EN RENDER - ESTE ES EL QUE USABAS ANTES
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b'OK')
-    def log_message(self, format, *args): pass
 
 threading.Thread(target=lambda: HTTPServer(('0.0.0.0', 10000), Handler).serve_forever(), daemon=True).start()
 bot.run(TOKEN)
