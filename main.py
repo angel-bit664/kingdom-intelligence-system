@@ -69,6 +69,75 @@ procesando_activate = set()
 traduciendo_users = set()
 
 # ============================================================
+# REINICIO MANUAL DE SERVICIOS
+# ============================================================
+
+def reiniciar_groq():
+    global groq_client
+    global groq_failures, groq_last_error, groq_last_success
+    global groq_circuit_open_until
+
+    groq_failures = 0
+    groq_last_error = None
+    groq_last_success = None
+    groq_circuit_open_until = 0.0
+
+    if GROQ_API_KEY and AsyncGroq is not None:
+        try:
+            groq_client = AsyncGroq(api_key=GROQ_API_KEY)
+            print("🔄 GROQ reiniciado manualmente.")
+            return True, "Groq fue reiniciado y la conexión fue reconstruida."
+        except Exception as error:
+            groq_client = None
+            print(f"❌ Error reiniciando Groq: {error}")
+            return False, f"No se pudo reconstruir Groq: {error}"
+
+    groq_client = None
+    return False, "Groq no está configurado o falta la librería/API key."
+
+
+def reiniciar_google():
+    global google_failures, google_last_error, google_last_success
+    global google_circuit_open_until
+
+    google_failures = 0
+    google_last_error = None
+    google_last_success = None
+    google_circuit_open_until = 0.0
+
+    print("🔄 GOOGLE reiniciado manualmente.")
+    return True, "Google fue reiniciado. El siguiente intento volverá a probarlo."
+
+
+def reiniciar_mymemory():
+    global mymemory_failures, mymemory_last_error, mymemory_last_success
+
+    mymemory_failures = 0
+    mymemory_last_error = None
+    mymemory_last_success = None
+
+    print("🔄 MYMEMORY reiniciado manualmente.")
+    return True, "MyMemory fue reiniciado."
+
+
+def reiniciar_sistema_traduccion():
+    groq_ok, groq_msg = reiniciar_groq()
+    _, google_msg = reiniciar_google()
+    _, mymemory_msg = reiniciar_mymemory()
+
+    return groq_ok, groq_msg, google_msg, mymemory_msg
+
+
+def usuario_puede_reiniciar(message):
+    # Solo administradores del servidor pueden ejecutar reinicios.
+    if message.guild is None:
+        return False
+
+    permisos = getattr(message.author, "guild_permissions", None)
+    return bool(permisos and permisos.administrator)
+
+
+# ============================================================
 # ESTADO
 # ============================================================
 
@@ -772,6 +841,71 @@ async def on_message(message):
         return
 
     # --------------------------------------------------------
+    # META REINICIAR
+    # --------------------------------------------------------
+
+    if comando == "reiniciar":
+        if not usuario_puede_reiniciar(message):
+            await message.channel.send(
+                "🔒 Solo un administrador del servidor puede reiniciar "
+                "los servicios del traductor.",
+                delete_after=8,
+            )
+            return
+
+        servicio = args.lower().strip()
+
+        if servicio in ("groq", "grok"):
+            ok, respuesta = reiniciar_groq()
+            await message.channel.send(
+                ("🟢 " if ok else "🔴 ") + respuesta,
+                delete_after=10,
+            )
+            return
+
+        if servicio == "google":
+            ok, respuesta = reiniciar_google()
+            await message.channel.send(
+                ("🟢 " if ok else "🔴 ") + respuesta,
+                delete_after=10,
+            )
+            return
+
+        if servicio in ("mymemory", "my-memory"):
+            ok, respuesta = reiniciar_mymemory()
+            await message.channel.send(
+                ("🟢 " if ok else "🔴 ") + respuesta,
+                delete_after=10,
+            )
+            return
+
+        if servicio in ("todo", "traductor", "traduccion", "traducción"):
+            groq_ok, groq_msg, google_msg, mymemory_msg = (
+                reiniciar_sistema_traduccion()
+            )
+
+            estado_general = "🟢" if groq_ok else "🟡"
+
+            await message.channel.send(
+                f"{estado_general} Sistema de traducción reiniciado.\n"
+                f"🧠 {groq_msg}\n"
+                f"🌎 {google_msg}\n"
+                f"🆘 {mymemory_msg}",
+                delete_after=12,
+            )
+            return
+
+        await message.channel.send(
+            "🔄 **Reinicio manual disponible:**\n"
+            "`meta reiniciar groq`\n"
+            "`meta reiniciar google`\n"
+            "`meta reiniciar mymemory`\n"
+            "`meta reiniciar todo`",
+            delete_after=12,
+        )
+        return
+
+    # --------------------------------------------------------
     # META ACTIVATE
     # --------------------------------------------------------
 
@@ -1258,6 +1392,15 @@ async def on_message(message):
         embed.add_field(
             name="🛡️ meta estado",
             value="Revisa Discord, Groq, Google y MyMemory.",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🔄 meta reiniciar <servicio>",
+            value=(
+                "Solo administradores. Reinicia Groq, Google, MyMemory "
+                "o todo el sistema de traducción."
+            ),
             inline=False,
         )
 
