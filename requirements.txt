@@ -1,7 +1,7 @@
-discord.py==2.3.2
+discord.py==2.5.0
 deep-translator==1.11.4
 python-dotenv==1.0.1
-groq==0.11.0
+groq==0.31.0
 langdetect==1.0.9
 httpx==0.27.2
 psutil==5.9.8
