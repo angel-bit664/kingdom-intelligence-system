@@ -58,11 +58,11 @@ ID_CANAL_ACTIVATE = 1358237524249542751
 ID_CANAL_ANUNCIOS = 1358237524249542751
 ID_CANAL_BUFF = 1358237524249542751
 
-# IDs autorizados para la traducción especial durante las pruebas.
-# Incluye al oficial turco y el ID de prueba que aparece en el archivo recibido.
-IDS_AUTORIZADOS_TRADUCCION_TURCO = {
-    290008036742004737,
+# Usuarios autorizados para probar la traducción automática de comunicados.
+# Ambos pueden escribir en español, inglés o turco sin activar nada.
+IDS_OFICIALES_TRADUCCION = {
     1049611733360193536,
+    290008036742004737,
 }
 
 ID_CANAL_OFICIALES = 1358237525214236705
@@ -551,70 +551,83 @@ async def corregir_y_traducir_ia(texto):
     }
 
 
-def _normalizar_para_comparar(texto):
-    """Normaliza el texto para detectar si el traductor devolvió el original."""
-    return re.sub(r"\\s+", " ", limpiar_texto(texto)).casefold().strip()
+def detectar_idioma_comunicado(texto):
+    """Detección ligera de español, inglés y turco sin dependencias nuevas.
 
-
-async def traducir_comunicado_idioma(texto, destino):
-    """Traduce un comunicado y no acepta como válida una respuesta idéntica al original.
-
-    Para evitar que el turco aparezca etiquetado como español, prueba Groq,
-    Google y MyMemory en orden. Si un proveedor devuelve el original, prueba
-    el siguiente en vez de publicar una traducción incorrecta.
+    Devuelve 'tr', 'es' o 'en'. Si el texto es ambiguo, prioriza español,
+    que es el idioma habitual de los comunicados de prueba del servidor.
     """
-    if not translation_enabled:
-        raise RuntimeError("El sistema de traducción está desactivado.")
-    if translation_semaphore is None:
-        raise RuntimeError("El sistema de traducción todavía no está listo.")
+    t = limpiar_texto(texto).lower()
+    if not t:
+        return "es"
 
-    original_normalizado = _normalizar_para_comparar(texto)
-    proveedores = (
-        ("Groq", traducir_groq),
-        ("Google", traducir_google),
-        ("MyMemory", traducir_mymemory),
-    )
-    errores = []
+    # Letras características del turco o vocabulario turco frecuente.
+    palabras_tr = {
+        "merhaba", "lütfen", "lutfen", "hazır", "hazir", "savaş", "savas",
+        "için", "icin", "değil", "degil", "dikkate", "almayın", "almayin",
+        "arkadaşlar", "arkadaslar", "katılın", "katilin", "gelin", "başlayın",
+        "baslayin", "etkinlik", "bugün", "bugun", "yarın", "yarin", "teşekkürler",
+        "tesekkurler", "güç", "guc", "lazım", "lazim", "hemen", "bir", "ve",
+    }
+    tokens = set(re.findall(r"[\wçğıöşüİı]+", t, flags=re.IGNORECASE))
+    tr_score = len(tokens & palabras_tr)
+    if re.search(r"[çğıöşüİı]", t):
+        tr_score += 2
+    if tr_score >= 2:
+        return "tr"
 
-    async with translation_semaphore:
-        for nombre, proveedor in proveedores:
-            try:
-                resultado = limpiar_texto(await proveedor(texto, destino))
-                if not resultado:
-                    raise RuntimeError("respuesta vacía")
-                if _normalizar_para_comparar(resultado) == original_normalizado:
-                    raise RuntimeError("el proveedor devolvió el texto original sin traducir")
-                return limitar_texto(resultado)
-            except Exception as error:
-                errores.append(f"{nombre}: {error}")
-                print(f"⚠️ Traducción de comunicado {destino} — {nombre}: {error}")
-
-    detalle = " | ".join(errores[-3:])
-    raise RuntimeError(
-        f"No se pudo verificar la traducción al idioma '{destino}'. {detalle}"
-    )
+    palabras_es = {
+        "hola", "buenos", "buenas", "este", "esta", "esto", "mensaje", "por",
+        "favor", "para", "con", "que", "qué", "los", "las", "una", "uno",
+        "nosotros", "ustedes", "equipo", "reino", "alianza", "evento", "anuncio",
+        "aviso", "guerra", "preparados", "prepárense", "gracias", "necesitamos",
+        "ayuda", "ahora", "mañana", "hoy", "todos", "todos", "pueden", "hacer",
+        "atención", "atencion", "batalla", "lleguen", "participen", "favoritos",
+    }
+    palabras_en = {
+        "hello", "hi", "this", "is", "a", "the", "please", "for", "ignore",
+        "message", "everyone", "team", "kingdom", "alliance", "event", "announcement",
+        "alert", "battle", "ready", "get", "help", "thank", "thanks", "we", "you",
+        "your", "are", "will", "join", "today", "tomorrow", "now", "don't", "do",
+        "not", "forget", "come", "and", "with", "to", "in", "on",
+    }
+    es_score = len(tokens & palabras_es)
+    en_score = len(tokens & palabras_en)
+    if re.search(r"[áéíóúñ¿¡]", t):
+        es_score += 2
+    if en_score > es_score and en_score >= 2:
+        return "en"
+    return "es"
 
 
 async def traducir_comunicado_bilingue(texto):
-    """Traduce comunicados al español y al inglés; falla si una salida no se traduce."""
+    """Devuelve español e inglés según el idioma detectado de entrada."""
     texto = limpiar_texto(texto)
     if not texto:
-        raise RuntimeError("El comunicado no contiene texto para traducir.")
+        return {"es": "", "en": ""}
 
-    es, en = await asyncio.gather(
-        traducir_comunicado_idioma(texto, "es"),
-        traducir_comunicado_idioma(texto, "en"),
-    )
-    return {"es": limitar_texto(es), "en": limitar_texto(en)}
+    idioma = detectar_idioma_comunicado(texto)
+    if idioma == "tr":
+        # El turco debe traducirse a ambos idiomas.
+        es, en = await asyncio.gather(
+            traducir_seguro(texto, "es"),
+            traducir_seguro(texto, "en"),
+        )
+        return {"es": limitar_texto(es), "en": limitar_texto(en)}
+
+    if idioma == "en":
+        # Conserva el original inglés y genera español.
+        es = await traducir_seguro(texto, "es")
+        return {"es": limitar_texto(es), "en": limitar_texto(texto)}
+
+    # Español: conserva el original y traduce solo al inglés.
+    en = await traducir_seguro(texto, "en")
+    return {"es": limitar_texto(texto), "en": limitar_texto(en)}
 
 
 async def traducir_comunicado_por_autor(message, texto):
-    """Aplica traducción especial solo al oficial turco autorizado.
-
-    Los demás miembros conservan el comportamiento anterior del bot:
-    texto original en español y traducción al inglés.
-    """
-    if message.author.id in IDS_AUTORIZADOS_TRADUCCION_TURCO:
+    """Los dos ID de prueba usan detección automática; los demás conservan la lógica previa."""
+    if message.author.id in IDS_OFICIALES_TRADUCCION:
         return await traducir_comunicado_bilingue(texto)
     return await corregir_y_traducir_ia(texto)
 
@@ -871,7 +884,7 @@ async def on_message(message):
 
         except Exception as error:
             print(f"[ERROR ACTIVATE] {error}")
-            await message.channel.send("❌ No se pudo completar la activación o verificar sus traducciones. Revisa los registros de Render.")
+            await message.channel.send("❌ Ocurrió un error al activar el protocolo.")
         finally:
             procesando_activate.discard(message.author.id)
 
@@ -918,14 +931,6 @@ async def on_message(message):
         waiting = await message.channel.send("⏳ Corrigiendo y traduciendo...")
         try:
             data = await traducir_comunicado_por_autor(message, args)
-        except Exception as error:
-            print(f"[ERROR COMUNICADO {command.upper()}] {error}")
-            await message.channel.send(
-                "❌ No pude verificar la traducción al español y al inglés. "
-                "No publiqué el comunicado para evitar mostrar un idioma incorrecto.",
-                delete_after=12,
-            )
-            return
         finally:
             try: await waiting.delete()
             except Exception: pass
@@ -950,16 +955,7 @@ async def on_message(message):
         try: await message.delete()
         except Exception: pass
 
-        try:
-            data = await traducir_comunicado_por_autor(message, args)
-        except Exception as error:
-            print(f"[ERROR COMUNICADO BUFFO] {error}")
-            await message.channel.send(
-                "❌ No pude verificar la traducción al español y al inglés. "
-                "No publiqué el bufo para evitar mostrar un idioma incorrecto.",
-                delete_after=12,
-            )
-            return
+        data = await traducir_comunicado_por_autor(message, args)
 
         embed = discord.Embed(title="🛎️ BUFO ACTIVADO", color=COLOR_META)
         embed.add_field(name="🇲🇽 Español", value=f"✅ {limitar_texto(data['es'])}", inline=False)
@@ -1230,4 +1226,5 @@ def run_server():
 threading.Thread(target=run_server, daemon=True).start()
 
 print("🚀 Iniciando Kingdom Intelligence System...")
+client.run(TOKEN)
 client.run(TOKEN)
