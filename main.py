@@ -58,6 +58,9 @@ ID_CANAL_ACTIVATE = 1358237524249542751
 ID_CANAL_ANUNCIOS = 1358237524249542751
 ID_CANAL_BUFF = 1358237524249542751
 
+# Único oficial autorizado para activar la traducción especial de comunicados en turco.
+ID_OFICIAL_TURCO = 290008036742004737
+
 ID_CANAL_OFICIALES = 1358237525214236705
 ID_CANAL_BITACORA = 1362642374429245440
 ID_CANAL_DIPLOMACIA = 1358237524799131664
@@ -543,6 +546,38 @@ async def corregir_y_traducir_ia(texto):
         "en": limitar_texto(await traducir_seguro(texto, "en")),
     }
 
+
+async def traducir_comunicado_bilingue(texto):
+    """Traduce el contenido de comunicados al español y al inglés.
+
+    El texto de origen puede estar en turco u otro idioma. Esta función se
+    usa solo en activate, anuncio/alerta/evento y buffo para no cambiar el
+    comportamiento de cumpleaños o editar.
+    """
+    texto = limpiar_texto(texto)
+    if len(texto) < 1:
+        return {"es": "", "en": ""}
+
+    es, en = await asyncio.gather(
+        traducir_seguro(texto, "es"),
+        traducir_seguro(texto, "en"),
+    )
+    return {
+        "es": limitar_texto(es),
+        "en": limitar_texto(en),
+    }
+
+
+async def traducir_comunicado_por_autor(message, texto):
+    """Aplica traducción especial solo al oficial turco autorizado.
+
+    Los demás miembros conservan el comportamiento anterior del bot:
+    texto original en español y traducción al inglés.
+    """
+    if message.author.id == ID_OFICIAL_TURCO:
+        return await traducir_comunicado_bilingue(texto)
+    return await corregir_y_traducir_ia(texto)
+
 # ============================================================
 # EMBEDS / ESTADO
 # ============================================================
@@ -754,8 +789,10 @@ async def on_message(message):
 
         try:
             user = message.mentions[0]
-            text = obtener_texto_sin_menciones(message)
-            data = await corregir_y_traducir_ia(text)
+            # Quitar el comando antes de traducir para no incluir "meta activate".
+            text = re.sub(r"^meta\s+activate\b", "", message.content.strip(), flags=re.IGNORECASE)
+            text = limpiar_texto(text)
+            data = await traducir_comunicado_por_autor(message, text)
 
             extra = (
                 "\n\n💬 MENSAJE / MESSAGE:\n"
@@ -831,7 +868,7 @@ async def on_message(message):
         ultimo_anuncio[message.channel.id] = published
         return
 
-    if command in ("evento", "alerta"):
+    if command in ("evento", "alerta", "anuncio"):
         if not args:
             return
 
@@ -840,12 +877,12 @@ async def on_message(message):
 
         waiting = await message.channel.send("⏳ Corrigiendo y traduciendo...")
         try:
-            data = await corregir_y_traducir_ia(args)
+            data = await traducir_comunicado_por_autor(message, args)
         finally:
             try: await waiting.delete()
             except Exception: pass
 
-        title = "⚔️ EVENTO" if command == "evento" else "🚨 ALERTA"
+        title = {"evento": "⚔️ EVENTO", "alerta": "🚨 ALERTA", "anuncio": "📢 ANUNCIO"}[command]
         embed = discord.Embed(title=title, color=COLOR_ALERTA)
         embed.add_field(name="🇲🇽 Español", value=limitar_texto(data["es"]), inline=False)
         embed.add_field(name="🇺🇸 English", value=limitar_texto(data["en"]), inline=False)
@@ -865,7 +902,7 @@ async def on_message(message):
         try: await message.delete()
         except Exception: pass
 
-        data = await corregir_y_traducir_ia(args)
+        data = await traducir_comunicado_por_autor(message, args)
 
         embed = discord.Embed(title="🛎️ BUFO ACTIVADO", color=COLOR_META)
         embed.add_field(name="🇲🇽 Español", value=f"✅ {limitar_texto(data['es'])}", inline=False)
@@ -959,11 +996,12 @@ async def on_message(message):
     if command == "ayuda":
         embed = discord.Embed(title="📋 COMANDOS META BOT", color=COLOR_META)
         commands = [
-            ("🚨 meta activate @usuario [mensaje]", "Código de emergencia ES/EN"),
+            ("🚨 meta activate @usuario [mensaje]", "Emergencia ES/EN; traducción especial turco solo para el oficial autorizado"),
             ("🎂 meta cumpleaños @usuario [mensaje]", "Felicitación ES/EN"),
-            ("📢 meta alerta <texto>", "Alerta ES/EN"),
-            ("⚔️ meta evento <texto>", "Evento ES/EN"),
-            ("🛎️ meta buffo <texto>", "Bufo ES/EN + @everyone"),
+            ("📢 meta anuncio <texto>", "Anuncio ES/EN; traducción especial turco solo para el oficial autorizado"),
+            ("📢 meta alerta <texto>", "Alerta ES/EN; traducción especial turco solo para el oficial autorizado"),
+            ("⚔️ meta evento <texto>", "Evento ES/EN; traducción especial turco solo para el oficial autorizado"),
+            ("🛎️ meta buffo <texto>", "Bufo ES/EN + @everyone; traducción especial turco solo para el oficial autorizado"),
             ("✏️ meta editar <texto>", "Edita el último anuncio"),
             ("🧹 meta limpia [cantidad]", "Borra mensajes del bot | Máx. 50"),
             ("🟢 meta ping", "Verifica latencia"),
