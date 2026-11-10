@@ -56,7 +56,7 @@ if not GROQ_MODELOS:
 
 ID_CANAL_ACTIVATE = 1358237524249542751
 ID_CANAL_ANUNCIOS = 1358237524249542751
-ID_CANAL_BUFF = 1358237524249542751
+ID_CANAL_BUFF = 1404721557279871056
 
 # Usuarios autorizados para probar la traducción automática de comunicados.
 # Ambos pueden escribir en español, inglés o turco sin activar nada.
